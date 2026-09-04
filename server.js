@@ -45,6 +45,7 @@ if (cluster.isPrimary) {
   process.on('SIGTERM', shutdown);
 } else {
   // Worker process runs Next.js server
+  console.log(`Worker process ${process.pid} started with CLUSTER_WORKER_ID=${process.env.CLUSTER_WORKER_ID}`);
   const app = next({ dev, hostname, port });
   const handle = app.getRequestHandler();
 

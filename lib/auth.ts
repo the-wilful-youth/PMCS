@@ -18,17 +18,46 @@ export interface LoginResult {
   user?: User;
 }
 
-const SESSION_COOKIE_NAME = 'pmcs_session';
+export interface SignupResult {
+  success: boolean;
+  error?: string;
+  user?: User;
+}
+
+export const SESSION_COOKIE_NAME = 'pmcs_session';
 const SESSION_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_DURATION_MS = 5 * 60 * 1000; // 5 minutes
 
-// Valid team members from project.md & Chronicle_Project_Management_System.xlsx
-const VALID_USERS: (User & { password: string })[] = [
-  { id: 'u-1', username: 'anurag', password: 'Admin@123456', role: 'admin', name: 'Anurag', email: 'anurag@pmcs.local' },
-  { id: 'u-2', username: 'divyanshi', password: 'Member@123456', role: 'member', name: 'Divyanshi', email: 'divyanshi@pmcs.local' },
-  { id: 'u-3', username: 'tanishk', password: 'Member@123456', role: 'member', name: 'Tanishk', email: 'tanishk@pmcs.local' },
-  { id: 'u-4', username: 'prajjwal', password: 'Member@123456', role: 'member', name: 'Prajjwal', email: 'prajjwal@pmcs.local' },
+// Cryptographic hash helper using Web Crypto API / SHA-256 (zero external dependency)
+export async function sha256(str: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(str + 'pmcs_salt_v1');
+  if (typeof crypto !== 'undefined' && crypto.subtle) {
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+  // Fallback for node environment where crypto.subtle might be accessed via node:crypto
+  try {
+    const nodeCrypto = require('crypto');
+    return nodeCrypto.createHash('sha256').update(data).digest('hex');
+  } catch {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      hash = ((hash << 5) - hash) + str.charCodeAt(i);
+      hash |= 0;
+    }
+    return String(hash);
+  }
+}
+
+// Built-in seed accounts for instant access and test compatibility
+export const DEFAULT_USERS: (User & { passwordPlain: string })[] = [
+  { id: 'u-1', username: 'anurag', passwordPlain: 'Admin@123456', role: 'admin', name: 'Anurag', email: 'anurag@pmcs.local' },
+  { id: 'u-2', username: 'divyanshi', passwordPlain: 'Member@123456', role: 'member', name: 'Divyanshi', email: 'divyanshi@pmcs.local' },
+  { id: 'u-3', username: 'tanishk', passwordPlain: 'Member@123456', role: 'member', name: 'Tanishk', email: 'tanishk@pmcs.local' },
+  { id: 'u-4', username: 'prajjwal', passwordPlain: 'Member@123456', role: 'member', name: 'Prajjwal', email: 'prajjwal@pmcs.local' },
 ];
 
 // In-memory rate limiting tracker (per client session/username)
@@ -131,6 +160,30 @@ export const isAuthenticated = (): boolean => {
   return window.localStorage.getItem('isAuthenticated') === 'true' || getSession() !== null;
 };
 
+export const getCurrentUser = (): User | null => {
+  if (typeof window === 'undefined') return null;
+
+  const session = getSession();
+  if (session) return session.user;
+
+  try {
+    const username = window.localStorage.getItem('username');
+    const role = window.localStorage.getItem('userRole');
+    const name = window.localStorage.getItem('userName');
+    if (username) {
+      return {
+        username,
+        role: role || 'member',
+        name: name || username,
+      };
+    }
+  } catch {
+    // Ignore storage access errors
+  }
+
+  return null;
+};
+
 export const login = async (usernameInput: string, passwordInput: string): Promise<LoginResult> => {
   const sanitizedUsername = (usernameInput || '').trim().toLowerCase();
   const sanitizedPassword = (passwordInput || '').trim();
@@ -155,27 +208,47 @@ export const login = async (usernameInput: string, passwordInput: string): Promi
     };
   }
 
-  const user = VALID_USERS.find(
-    u => u.username === sanitizedUsername && u.password === sanitizedPassword
+  // 1. Check default seed accounts
+  const defaultUser = DEFAULT_USERS.find(
+    u => u.username.toLowerCase() === sanitizedUsername && u.passwordPlain === sanitizedPassword
   );
 
-  if (!user) {
+  let authenticatedUser: User | null = null;
+
+  if (defaultUser) {
+    authenticatedUser = {
+      id: defaultUser.id,
+      username: defaultUser.username,
+      name: defaultUser.name,
+      email: defaultUser.email,
+      role: defaultUser.role,
+    };
+  } else if (typeof window !== 'undefined') {
+    // 2. Browser check against server API for custom registered users
+    try {
+      const resp = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: sanitizedUsername, password: sanitizedPassword }),
+      });
+      const data = await resp.json();
+      if (data.success && data.user) {
+        authenticatedUser = data.user;
+      }
+    } catch {
+      // Fallback
+    }
+  }
+
+  if (!authenticatedUser) {
     recordFailedAttempt(rateLimitKey);
     return { success: false, error: 'Invalid username or password.' };
   }
 
   clearFailedAttempts(rateLimitKey);
 
-  const sessionUser: User = {
-    id: user.id,
-    username: user.username,
-    name: user.name,
-    email: user.email,
-    role: user.role,
-  };
-
   const session: Session = {
-    user: sessionUser,
+    user: authenticatedUser,
     token: `pmcs_${Math.random().toString(36).substring(2)}_${Date.now()}`,
     expiresAt: Date.now() + SESSION_DURATION_MS,
   };
@@ -187,16 +260,101 @@ export const login = async (usernameInput: string, passwordInput: string): Promi
     setCookie(SESSION_COOKIE_NAME, sessionString, maxAgeSeconds);
     try {
       window.localStorage.setItem('isAuthenticated', 'true');
-      window.localStorage.setItem('username', user.username);
-      window.localStorage.setItem('userRole', user.role);
-      window.localStorage.setItem('userName', user.name);
+      window.localStorage.setItem('username', authenticatedUser.username);
+      window.localStorage.setItem('userRole', authenticatedUser.role);
+      window.localStorage.setItem('userName', authenticatedUser.name);
       window.localStorage.setItem(SESSION_COOKIE_NAME, sessionString);
     } catch {
       // Ignore storage errors
     }
   }
 
-  return { success: true, user: sessionUser };
+  return { success: true, user: authenticatedUser };
+};
+
+// Self-service registration for any new user
+export const signup = async (
+  usernameInput: string,
+  passwordInput: string,
+  nameInput: string,
+  emailInput: string
+): Promise<SignupResult> => {
+  const sanitizedUsername = (usernameInput || '').trim().toLowerCase();
+  const sanitizedPassword = (passwordInput || '').trim();
+  const sanitizedName = (nameInput || '').trim();
+  const sanitizedEmail = (emailInput || '').trim().toLowerCase();
+
+  // Input validation
+  if (!sanitizedUsername || !sanitizedPassword || !sanitizedName || !sanitizedEmail) {
+    return { success: false, error: 'All fields (username, password, name, email) are required.' };
+  }
+
+  if (sanitizedUsername.length < 3 || sanitizedUsername.length > 64) {
+    return { success: false, error: 'Username must be between 3 and 64 characters.' };
+  }
+
+  if (sanitizedPassword.length < 6 || sanitizedPassword.length > 128) {
+    return { success: false, error: 'Password must be at least 6 characters.' };
+  }
+
+  if (sanitizedName.length < 2 || sanitizedName.length > 100) {
+    return { success: false, error: 'Name must be between 2 and 100 characters.' };
+  }
+
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(sanitizedEmail)) {
+    return { success: false, error: 'Please enter a valid email address.' };
+  }
+
+  // Check if username already exists in default users
+  if (DEFAULT_USERS.some(u => u.username.toLowerCase() === sanitizedUsername)) {
+    return { success: false, error: 'Username already exists. Please choose a different username.' };
+  }
+
+  if (typeof window !== 'undefined') {
+    try {
+      const resp = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: sanitizedUsername,
+          password: sanitizedPassword,
+          name: sanitizedName,
+          email: sanitizedEmail,
+        }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.success) {
+        return { success: false, error: data.error || 'Registration failed' };
+      }
+
+      const sessionUser: User = data.user;
+      const session: Session = {
+        user: sessionUser,
+        token: `pmcs_${Math.random().toString(36).substring(2)}_${Date.now()}`,
+        expiresAt: Date.now() + SESSION_DURATION_MS,
+      };
+
+      const sessionString = JSON.stringify(session);
+      const maxAgeSeconds = Math.floor(SESSION_DURATION_MS / 1000);
+      setCookie(SESSION_COOKIE_NAME, sessionString, maxAgeSeconds);
+      try {
+        window.localStorage.setItem('isAuthenticated', 'true');
+        window.localStorage.setItem('username', sessionUser.username);
+        window.localStorage.setItem('userRole', sessionUser.role);
+        window.localStorage.setItem('userName', sessionUser.name);
+        window.localStorage.setItem(SESSION_COOKIE_NAME, sessionString);
+      } catch {
+        // Ignore storage errors
+      }
+
+      return { success: true, user: sessionUser };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Network error during registration' };
+    }
+  }
+
+  return { success: false, error: 'Registration requires an active server session.' };
 };
 
 export const logout = (): void => {
@@ -213,44 +371,3 @@ export const logout = (): void => {
     }
   }
 };
-
-export const getUsername = (): string | null => {
-  if (typeof window !== 'undefined') {
-    return window.localStorage.getItem('username') || getSession()?.user.name || null;
-  }
-  return null;
-};
-
-export const getUserRole = (): string | null => {
-  if (typeof window !== 'undefined') {
-    return window.localStorage.getItem('userRole') || getSession()?.user.role || null;
-  }
-  return null;
-};
-
-export const getUserName = (): string | null => {
-  if (typeof window !== 'undefined') {
-    return window.localStorage.getItem('userName') || getSession()?.user.name || null;
-  }
-  return null;
-};
-
-export const getCurrentUser = (): User | null => {
-  if (typeof window !== 'undefined' && isAuthenticated()) {
-    const session = getSession();
-    if (session) return session.user;
-    return {
-      username: getUsername() || 'user',
-      role: getUserRole() || 'member',
-      name: getUserName() || 'User',
-    };
-  }
-  return null;
-};
-
-export const getAuthState = () => ({
-  isAuthenticated: isAuthenticated(),
-  username: getUsername(),
-  role: getUserRole(),
-  name: getUserName(),
-});

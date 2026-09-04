@@ -1,7 +1,7 @@
 {
   "name": "pmcs",
   "version": "1.0.0",
-  "description": "",
+  "description": "PMCS (Project Management & Coordination System) - High-concurrency enterprise project management workspace with multi-project tracking, Redis caching, and clustered scaling.",
   "main": "index.js",
   "scripts": {
     "dev": "next dev",
@@ -16,9 +16,17 @@
     "type": "git",
     "url": "git+https://github.com/the-wilful-youth/PMCS.git"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "project-management",
+    "nextjs",
+    "react",
+    "typescript",
+    "redis",
+    "clustering",
+    "high-concurrency"
+  ],
+  "author": "PMCS Contributors",
+  "license": "MIT",
   "type": "module",
   "bugs": {
     "url": "https://github.com/the-wilful-youth/PMCS/issues"
