@@ -1,224 +1,289 @@
-# PMCS - Project Manager Portal
+<div align="center">
 
-## Overview
+# PMCS — Project Management & Coordination System
 
-PMCS (Project Manager Control System) is a comprehensive enterprise-ready web-based project management portal designed for academic and software project teams. Built with Next.js 16, TypeScript, and React, it provides a secure, high-performance interface for managing tasks, teams, documents, research papers, datasets, meetings, milestones, issues, calendars, reports, and activity logs.
+**An enterprise-grade, high-concurrency, multi-project coordination workspace built with Next.js 16, TypeScript, React 19, and Redis.**
 
-This implementation features a robust architecture engineered for **high concurrency, Redis-backed distributed caching, CPU-level multi-worker clustering, and enterprise load balancing**.
+[![Next.js](https://img.shields.io/badge/Next.js-16.3.4-black?logo=next.js)](https://nextjs.org/)
+[![React](https://img.shields.io/badge/React-19.2.8-blue?logo=react)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-7.0.2-blue?logo=typescript)](https://www.typescriptlang.org/)
+[![Tests](https://img.shields.io/badge/Jest-26%20Tests%20Passing-brightgreen?logo=jest)](https://jestjs.io/)
+[![Turbopack](https://img.shields.io/badge/Turbopack-Supported-blueviolet?logo=turbopack)](https://turbo.build/)
+[![Redis](https://img.shields.io/badge/Redis-Distributed%20Cache-red?logo=redis)](https://redis.io/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+[Features](#key-features) • [Architecture](#architecture--scalability) • [Quick Start](#quick-start) • [API Reference](#api-reference) • [Contributing](#contributing)
+
+</div>
+
+---
+
+## Executive Overview
+
+**PMCS (Project Management & Coordination System)** is a comprehensive, production-ready workspace engineered for engineering teams, research institutions, and product organizations. It combines project tracking, team management, academic literature tracking, dataset governance, meeting action conversions, dynamic milestone computation, and issue triage into an intuitive single pane of glass.
+
+Originally designed for academic systems research, PMCS has been generalized into a **universal multi-project coordination platform**: any user can register, spin up new project workspaces, assign teammates, track deliverables, and seamlessly toggle project contexts from anywhere in the app.
 
 ---
 
 ## Key Features
 
-- **Authentication & Authorization**: Cryptographic SHA-256 salted password hashing, role-based access control (Admin/Member), and secure server-side proxy route guards.
-- **Dashboard**: Real-time project health indicators (`ON TRACK`, `AT RISK`, `CRITICAL`), task statistics, and workload metrics.
-- **Task Management**: Kanban and list views, status updates, priority tags, assignments, and dependencies.
-- **Team Collaboration**: Member profiles, role assignment, workload assessment, and contribution tracking.
-- **Document Management**: Categorized document index, version control history, status tracking, and external file linking.
-- **Research Tracking**: Academic paper repository with citation metadata, DOI/URL tracking, relevance scores, and responsible member assignments.
-- **Dataset Management**: Dual status tracking (access status and analysis status), platform/OS compatibility, and sample metrics.
-- **Meetings & Action Items**: Meeting records, agendas, decisions, and one-click action-item-to-task conversion.
-- **Milestone Tracking**: Visual progress bars calculated dynamically from associated tasks, target dates, and success criteria.
-- **Issue Tracking**: Severity levels (Critical, High, Medium, Low), problem descriptions, resolution logs, and assignee tracking.
-- **Integrated Calendar**: Multi-view schedule (Month, Week, Day) aggregating task deadlines, team meetings, and major milestones.
-- **Reporting System**: On-demand report generation (Project Progress, Member Contribution, Research, Dataset, Issue) with export formats.
-- **Activity Log**: Immutable audit trail of all project events and state changes.
+### 🏢 Multi-Project Workspace Management
+- **Centralized Directory (`/projects`)**: Filter, search, and view all team initiatives, leads, deadlines, and project statuses (`Active`, `Planning`, `On Hold`, `Completed`).
+- **Interactive Project Creator (`/projects/new`)**: Configure scopes, milestones, and assign registered team members with automatic administrator rights.
+- **Dynamic Context Switcher**: A persistent header dropdown in `components/Navigation.tsx` allows one-click switching between "Global (All Projects)" and specific initiatives, dispatching reactive events across all open modules.
+
+### 📊 Real-Time Executive Dashboard
+- Health indicators calculated dynamically (`ON TRACK`, `AT RISK`, `CRITICAL`).
+- Aggregated workload metrics: overall completion percentage, total tasks, overdue counts, in-progress workloads, and active blockers.
+- Dynamically scopes metrics to the selected active project or across the entire workspace.
+
+### 📋 Task & Kanban Tracking (`/tasks`)
+- Kanban and list views with status toggles (`Not Started`, `In Progress`, `Ready for Review`, `Completed`, `Blocked`).
+- Priority ratings (`High`, `Medium`, `Low`), effort estimates, worklogs, and dependency tracking.
+- Context-aware creation: newly created tasks automatically bind to the active project context.
+
+### 🎯 Dynamic Milestone Engine (`/milestones`)
+- Visual progress bars dynamically calculated based on completed associated tasks.
+- Target deadlines, success criteria arrays, and milestone ownership assignments.
+
+### 🚨 Issue & Blocker Management (`/issues`)
+- Severity levels (`Critical`, `High`, `Medium`, `Low`), status lifecycle (`Open`, `In Progress`, `Resolved`, `Closed`), and direct task linking.
+- Audit trail logging and assignee triage.
+
+### 👥 Team & Workload Analytics (`/team`)
+- Member directory with role badges (`admin`, `member`, `reviewer`).
+- Real-time workload calculations: task distribution, completed vs. in-progress ratios, and blocker tracking per contributor.
+
+### 📚 Research & Literature Repository (`/research`)
+- Academic publication index with citation metadata, DOI/URL links, relevance scoring, and paper reviewers.
+- Full PDF/external reference tracking.
+
+### 💾 Dataset Lifecycle Management (`/datasets`)
+- Dual-status tracking: **Access Status** (`Requested`, `Approved`, `Acquired`) and **Analysis Status** (`Pending`, `In Progress`, `Processed`).
+- Operating system and hardware platform compatibility tags.
+
+### 🤝 Meetings & Action Item Conversions (`/meetings`)
+- Structured agendas, discussion minutes, and recorded decisions.
+- **One-Click Action Item Conversion**: Converts meeting action items into trackable Kanban tasks with pre-populated owners and deadlines.
+
+### 📅 Unified Calendar & Reports
+- **Calendar (`/calendar`)**: Aggregated timeline synchronizing task deadlines, team meetings, and major milestones in Month/Week/Day views.
+- **Reporting System (`/reports`)**: On-demand summaries for project status, member contributions, research progress, and issues.
+- **Audit Trail (`/activity`)**: Immutable historical log of all changes across projects, tasks, issues, and milestones.
 
 ---
 
-## High-Concurrency & Scalability Architecture
+## Architecture & Scalability
 
-### 1. Multi-Worker Clustered Server (`server.js`)
-- Utilizes Node.js native `cluster` module to scale across **all available CPU cores**.
-- Master supervisor process distributes incoming HTTP connections across workers via kernel IPC.
-- **Self-Healing**: Automatically monitors worker health and immediately spawns a replacement worker if any process exits, ensuring zero downtime.
-- Run with:
-  ```bash
-  npm run cluster        # Development multi-worker cluster
-  npm run start:cluster  # Production multi-worker cluster
-  ```
+PMCS is engineered for high-concurrency environments and enterprise scale:
 
-### 2. Distributed Caching with Redis (`lib/cache.ts` & `lib/redis.ts`)
-- Enterprise `CacheManager` powered by `ioredis`.
-- **Automatic Graceful Fallback**: If Redis is not running or network connectivity drops, the system automatically falls back to an ultra-fast in-memory TTL cache with LRU eviction without throwing unhandled exceptions.
-- `cache.getOrSet()` pattern prevents cache stampedes and database exhaustion under heavy traffic spikes.
-- Configurable via `REDIS_URL` or `REDIS_HOST` / `REDIS_PORT`.
+```
+                              ┌─────────────────────────────┐
+                              │     Nginx Load Balancer     │
+                              │  (least_conn, microcaching) │
+                              └──────────────┬──────────────┘
+                                             │
+                   ┌─────────────────────────┼─────────────────────────┐
+                   ▼                         ▼                         ▼
+          ┌─────────────────┐       ┌─────────────────┐       ┌─────────────────┐
+          │  PMCS Worker 1  │       │  PMCS Worker 2  │       │  PMCS Worker N  │
+          │ (Node.js Core)  │       │ (Node.js Core)  │       │ (Node.js Core)  │
+          └────────┬────────┘       └────────┬────────┘       └────────┬────────┘
+                   │                         │                         │
+                   └─────────────────────────┼─────────────────────────┘
+                                             │
+                          ┌──────────────────┴──────────────────┐
+                          ▼                                     ▼
+                ┌───────────────────┐                 ┌───────────────────┐
+                │   Redis Cluster   │ ──(fallback)──► │ In-Memory LRU TTL │
+                │ (Cache Layer)     │                 │   (Zero Config)   │
+                └───────────────────┘                 └───────────────────┘
+                                             │
+                                             ▼
+                                ┌────────────────────────┐
+                                │   Persistent DB Layer  │
+                                │    (Atomic File DB)    │
+                                └────────────────────────┘
+```
 
-### 3. Production Load Balancing (`load-balancer/`)
-- **Nginx Reverse Proxy (`load-balancer/nginx.conf`)**:
-  - `least_conn` load balancing across PMCS upstream instances.
+### 1. Multi-Worker Clustered Supervisor (`server.js`)
+- Utilizes the Node.js native `cluster` module to saturate **all available CPU cores**.
+- Kernel IPC load balancing distributes incoming HTTP requests across worker threads.
+- **Self-Healing Supervisor**: Automatically detects worker termination and spawns replacements with zero downtime.
+
+### 2. Dual-Tier Distributed Caching (`lib/cache.ts`)
+- High-performance caching layer powered by `ioredis`.
+- **Automatic Graceful Fallback**: If Redis is not running or network connectivity drops, the system falls back to an ultra-fast in-memory TTL cache with LRU eviction without throwing unhandled exceptions.
+- `cache.getOrSet()` pattern prevents cache stampedes under heavy traffic spikes.
+
+### 3. Production Reverse Proxy & Load Balancer (`load-balancer/`)
+- **Nginx (`load-balancer/nginx.conf`)**:
+  - `least_conn` load balancing across application nodes.
   - HTTP keepalive connection pooling (`keepalive 64`).
   - Microcaching (`proxy_cache`) and gzip compression for high throughput.
-  - DDoS rate limiting: 100 requests/sec per IP with burst buffer of 50.
-- **Docker Compose Stack (`load-balancer/docker-compose.yml`)**:
-  - Turnkey containerized stack deploying Redis (512MB LRU) + 3 PMCS application nodes + Nginx load balancer.
-  ```bash
-  cd load-balancer
-  docker compose up --build
-  ```
+  - DDoS rate limiting: 100 req/sec per IP with a burst buffer of 50.
+- **Docker Compose Stack (`load-balancer/docker-compose.yml`)**: Turnkey local production stack with Redis + 3 PMCS application nodes + Nginx load balancer.
 
-### 4. High-Availability Endpoints
-- **Health Check (`GET /api/health`)**:
-  - Returns real-time health metrics for load balancers (AWS ALB, Nginx, HAProxy, Kubernetes): system load average, memory usage, worker PID, cluster ID, and cache status.
-- **Cached Metrics (`GET /api/metrics`)**:
-  - Serves cached dashboard aggregations with 60-second TTL and HTTP `Cache-Control: public, s-maxage=60, stale-while-revalidate=30`.
+### 4. Zero-Dependency Cryptographic Security
+- Cryptographic SHA-256 password hashing with unique salts using native Node.js / Web Crypto API (no brittle native C++ addons).
+- Rate-limiting protection locking out repeated failed login attempts (5 attempts, 5-minute lockout).
+- Proxy route guard in `proxy.ts` eliminating Flash of Unauthenticated Content (FOUC).
+- Hardened HTTP security headers: CSP, HSTS, `X-Frame-Options: DENY`, and `X-Content-Type-Options: nosniff`.
 
 ---
 
-## Security & Performance Highlights
-
-### Security Hardening
-- 🔐 **Cryptographic Authentication**: SHA-256 password hashing with salt using the Web Crypto API.
-- 🛡️ **Rate Limiting & Lockout**: Brute-force protection locking out repeated failed login attempts (5 attempts, 5-minute lockout).
-- 📦 **Server-Side Route Guard (`proxy.ts`)**: Next.js 16 proxy intercepts unauthenticated requests on the server before rendering, eliminating Flash of Unauthenticated Content (FOUC).
-- 🛑 **HTTP Security Headers**: Enforced CSP, HSTS, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, and disabled `poweredByHeader`.
-
-### Performance Optimizations
-- ⚡ **Native SWC Compiler**: Removed legacy Babel configs to enable Next.js Turbopack / native SWC transformations.
-- 🚫 **Client-Side SPA Navigation**: Replaced `window.location.href` full reloads with `useRouter().replace()`.
-- 🔄 **Hydration-Safe Architecture**: Eliminated SSR/client hydration mismatches and React effect dependency loops.
-- 📦 **Optimized Path Aliasing**: Configured clean `@/*` path mapping for TypeScript 7 compatibility.
-
----
-
-## Technology Stack
-
-- **Framework**: Next.js 16 (App Router)
-- **Language**: TypeScript 7
-- **Caching**: Redis (`ioredis`) with in-memory TTL fallback
-- **Cluster & Scaling**: Node.js Cluster Module (`node:cluster`)
-- **Load Balancer**: Nginx (reverse proxy, rate-limiting, microcaching)
-- **Containerization**: Docker & Docker Compose
-- **Testing**: Jest with `@testing-library/react` and `next/jest` (SWC runner)
-- **Authentication**: Web Crypto API & session cookies
-
----
-
-## Getting Started
+## Quick Start
 
 ### Prerequisites
-- Node.js (v18 or higher)
-- npm or yarn
-- Optional: Redis server (local or Docker)
+- **Node.js**: v18.17.0 or higher (v20+ recommended)
+- **npm** or **pnpm** / **yarn**
+- *(Optional)* **Docker & Docker Compose** for multi-container deployments
 
-### Installation
+### 1. Clone & Install
 ```bash
 git clone https://github.com/the-wilful-youth/PMCS.git
 cd PMCS
 npm install
 ```
 
-### Environment Configuration (Optional)
-Create `.env.local` to customize cache and port settings:
-```env
-PORT=3000
-REDIS_URL=redis://localhost:6379
-# or leave unset to use automatic in-memory cache fallback
+### 2. Environment Configuration
+Copy the configuration template:
+```bash
+cp .env.example .env.local
 ```
 
-### Running Locally
-
-**Standard Development Server:**
+### 3. Launch Development Server
 ```bash
 npm run dev
 ```
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-**High-Performance Multi-Worker Cluster (All CPU Cores):**
-```bash
-npm run cluster
-```
+---
 
-**Production Build & Start:**
+## Deployment & Production Options
+
+### Option A: Clustered Node Server (All CPU Cores)
 ```bash
 npm run build
-npm start
-# or start cluster mode:
 npm run start:cluster
 ```
 
-**Docker Compose High-Load Stack:**
+### Option B: Standard Next.js Production Server
+```bash
+npm run build
+npm start
+```
+
+### Option C: Turnkey Docker Compose Stack (Nginx + Redis + PMCS Nodes)
 ```bash
 cd load-balancer
 docker compose up --build
 ```
+Access the application through the load balancer at `http://localhost:80`.
 
 ---
 
-## Testing
+## API Reference
 
-The project includes unit and integration tests:
+PMCS provides a RESTful API with JSON payloads:
+
+### Authentication & Users
+| Method | Endpoint | Description | Auth Required |
+|---|---|---|---|
+| `POST` | `/api/auth/login` | Authenticate user and issue session cookie | No |
+| `POST` | `/api/auth/signup` | Register a new user account with admin rights | No |
+| `GET` | `/api/auth/me` | Fetch active user session information | Yes |
+| `GET` | `/api/auth/users` | List all registered workspace users | Yes |
+
+### Projects & Dashboard
+| Method | Endpoint | Description | Auth Required |
+|---|---|---|---|
+| `GET` | `/api/projects` | List all projects (or projects user is member of) | Yes |
+| `POST` | `/api/projects` | Create a new project with lead and members | Admin |
+| `GET` | `/api/dashboard` | Aggregated dashboard metrics (accepts `?projectId=...`) | Yes |
+| `GET` | `/api/metrics` | Cached metrics endpoint with 60-second TTL | Yes |
+| `GET` | `/api/health` | Health check probe (CPU, memory, worker, cache) | No |
+
+### Tasks & Team
+| Method | Endpoint | Description | Auth Required |
+|---|---|---|---|
+| `GET` | `/api/tasks` | List tasks (filterable by `projectId`, `status`, `assignee`) | Yes |
+| `POST` | `/api/tasks` | Create a new task in active project | Yes |
+| `PUT` | `/api/tasks/[id]` | Update task status, assignee, or effort | Yes |
+| `DELETE` | `/api/tasks/[id]` | Delete a task | Yes |
+| `GET` | `/api/team` | Team directory with real-time workload stats | Yes |
+| `POST` | `/api/team` | Add a new team member | Admin |
+
+### Milestones, Issues & Meetings
+| Method | Endpoint | Description | Auth Required |
+|---|---|---|---|
+| `GET` | `/api/milestones` | List all milestones and computed progress | Yes |
+| `POST` | `/api/milestones` | Create a new project milestone | Yes |
+| `GET` | `/api/issues` | List all issues and blockers | Yes |
+| `POST` | `/api/issues` | Log a new issue | Yes |
+| `GET` | `/api/meetings` | List meeting logs and action items | Yes |
+| `POST` | `/api/meetings` | Record a new team meeting | Yes |
+| `POST` | `/api/meetings/[id]/convert-action` | Convert meeting action item into a Kanban task | Yes |
+
+### Knowledge & Audit
+| Method | Endpoint | Description | Auth Required |
+|---|---|---|---|
+| `GET` | `/api/documents` | List documentation and version histories | Yes |
+| `GET` | `/api/research` | List academic papers and literature reviews | Yes |
+| `GET` | `/api/datasets` | List dataset acquisitions and analysis statuses | Yes |
+| `GET` | `/api/reports` | Export analytical reports | Yes |
+| `GET` | `/api/activity` | Immutable audit trail of workspace events | Yes |
+
+---
+
+## Pre-Seeded Accounts
+
+For instant testing and evaluation, PMCS includes pre-configured credentials:
+
+| Username | Password | Role | Description |
+|---|---|---|---|
+| `anurag` | `Admin@123456` | Project Admin | Workspace Administrator |
+| `divyanshi` | `Member@123456` | Team Member | Collaborator & Developer |
+| `tanishk` | `Member@123456` | Team Member | Collaborator & Developer |
+| `prajjwal` | `Member@123456` | Team Member | Collaborator & Developer |
+
+*(New accounts can also be created at any time using the **Create Account** tab on `/login`.)*
+
+---
+
+## Testing & Quality Assurance
+
+PMCS maintains a comprehensive automated testing suite:
+
 ```bash
 # Run all test suites
 npm test
 
-# Run tests in watch mode
+# Run tests in interactive watch mode
 npm run test:watch
 ```
 
-Test coverage includes:
-- `tests/auth.test.ts`: Password hashing, rate limiting, credential rejection, session parsing, and expiry.
-- `tests/cache.test.ts`: Cache set/get, TTL expiry, cache invalidation, getOrSet pattern, and status reporting.
-- `tests/login.page.test.tsx`: Form accessibility, error alert feedback, and authenticated redirects.
-- `tests/app.page.test.tsx`: Dashboard rendering, role badges, and authenticated metrics.
+### Test Suites Included:
+- **`tests/projects.test.ts`**: Multi-project management, project isolation, metrics calculation, and cryptographic hashing.
+- **`tests/auth.test.ts`**: Web Crypto SHA-256 verification, rate-limiting lockouts, credential validation, session parsing, and expiry.
+- **`tests/cache.test.ts`**: Redis operations, in-memory TTL fallback, cache invalidation, and `getOrSet` stampede prevention.
+- **`tests/backend.test.ts`**: Persistent DB initialization, meeting action-to-task conversion, and audit logging.
+- **`tests/login.page.test.tsx`**: Accessibility testing, error alerts, and authentication state transitions.
+- **`tests/app.page.test.tsx`**: Executive dashboard rendering, role badges, and authenticated metric displays.
 
 ---
 
-## Project Structure
+## Contributing
 
-```
-PMCS/
-├── app/                      # Next.js 16 App Router
-│   ├── activity/             # Activity audit log
-│   ├── api/
-│   │   ├── health/           # Health check endpoint for load balancers
-│   │   └── metrics/          # Redis-cached dashboard metrics endpoint
-│   ├── calendar/             # Calendar views (month/week/day)
-│   ├── datasets/             # Dataset management
-│   ├── documents/            # Document management & versioning
-│   ├── issues/               # Issue/blocker tracking
-│   ├── login/                # Authentication page
-│   ├── meetings/             # Meeting management & action items
-│   ├── milestones/           # Milestone tracking & progress calculation
-│   ├── my-work/              # Personal workspace
-│   ├── reports/              # Reporting system & export options
-│   ├── research/             # Research paper repository
-│   ├── tasks/                # Task management
-│   ├── team/                 # Team management & new member onboarding
-│   ├── layout.tsx            # Root layout
-│   └── page.tsx              # Central dashboard
-├── lib/                      # Shared business logic
-│   ├── auth.ts               # Cryptographic auth, sessions, rate limiting
-│   ├── cache.ts              # Redis + in-memory cache manager
-│   └── redis.ts              # Redis client exports
-├── load-balancer/            # Enterprise deployment configuration
-│   ├── nginx.conf            # Nginx load balancer, rate limiting & cache
-│   └── docker-compose.yml    # Redis + 3 app instances + Nginx stack
-├── public/                   # Static assets
-├── styles/                   # Global CSS
-├── tests/                    # Jest test suites
-│   ├── auth.test.ts
-│   ├── cache.test.ts
-│   ├── login.page.test.tsx
-│   └── app.page.test.tsx
-├── Dockerfile                # Multi-stage production Docker build
-├── jest.config.mjs           # SWC-powered Jest configuration
-├── jest.setup.js             # Environment polyfills
-├── next.config.js            # Security headers & Next.js config
-├── proxy.ts                  # Next.js 16 server route guard
-├── server.js                 # Multi-worker cluster entrypoint
-├── tsconfig.json             # TypeScript 7 configuration
-└── package.json              # Dependencies and run scripts
-```
-
----
-
-## Initial Credentials (from `project.md`)
-
-- **Admin Account:** `anurag` / `Admin@123456`
-- **Member Accounts:** `divyanshi`, `tanishk`, or `prajjwal` / `Member@123456`
+We welcome contributions! Please review our [**Contributing Guide (CONTRIBUTING.md)**](./CONTRIBUTING.md) for detailed instructions on:
+- Setting up your local environment
+- Development standards and conventions
+- Submitting pull requests
+- Branch naming and commit message format
 
 ---
 
 ## License
 
-This project is licensed under the ISC License.
+This project is licensed under the [MIT License](./package.json).
