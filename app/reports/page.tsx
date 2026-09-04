@@ -4,18 +4,29 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { isAuthenticated, logout } from '@/lib/auth';
 
+interface ReportTask {
+  id: string;
+  title: string;
+  status: string;
+  assignee: string;
+  priority: string;
+  effort?: number;
+  dueDate?: string;
+}
+
 export default function ReportsPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
 
   // Sample data for reports
-  const sampleTasks = [
-    { id: 'T-001', title: 'Set up project workspace', status: 'Completed', assignee: 'Anurag', priority: 'Medium', effort: 3 },
-    { id: 'T-002', title: 'Finalize Linux datasets', status: 'In Progress', assignee: 'Divyanshi', priority: 'High', effort: 5 },
-    { id: 'T-003', title: 'Literature review', status: 'In Progress', assignee: 'Tanishk', priority: 'Medium', effort: 5 },
-    { id: 'T-004', title: 'Dataset acquisition', status: 'Not Started', assignee: 'Prajjwal', priority: 'High', effort: 8 },
-    { id: 'T-005', title: 'Preprocessing pipeline', status: 'Not Started', assignee: 'Anurag', priority: 'Medium', effort: 5 }
+  const sampleTasks: ReportTask[] = [
+    { id: 'T-001', title: 'Set up project workspace', status: 'Completed', assignee: 'Anurag', priority: 'Medium', effort: 3, dueDate: '2026-09-15' },
+    { id: 'T-002', title: 'Finalize Linux datasets', status: 'In Progress', assignee: 'Divyanshi', priority: 'High', effort: 5, dueDate: '2026-09-20' },
+    { id: 'T-003', title: 'Literature review', status: 'In Progress', assignee: 'Tanishk', priority: 'Medium', effort: 5, dueDate: '2026-09-25' },
+    { id: 'T-004', title: 'Dataset acquisition', status: 'Not Started', assignee: 'Prajjwal', priority: 'High', effort: 8, dueDate: '2026-09-30' },
+    { id: 'T-005', title: 'Preprocessing pipeline', status: 'Not Started', assignee: 'Anurag', priority: 'Medium', effort: 5, dueDate: '2026-10-05' }
   ];
+
 
   const sampleTeam = [
     { id: 'u-1', name: 'Anurag', role: 'Project Admin', completedTasks: 1, effortPoints: 3 },
@@ -46,11 +57,31 @@ export default function ReportsPage() {
     { id: 'I-005', problem: 'Authentication system vulnerability', severity: 'Critical', status: 'Resolved' }
   ];
 
+  const [tasks, setTasks] = useState(sampleTasks);
+  const [reportData, setReportData] = useState<any>(null);
+
   useEffect(() => {
     if (!isAuthenticated()) {
       router.replace('/login');
     } else {
-      setIsLoading(false);
+      fetch('/api/reports')
+        .then(res => res.ok ? res.json() : null)
+        .then(data => {
+          if (data) {
+            setReportData(data);
+          }
+        })
+        .catch(() => {});
+
+      fetch('/api/tasks')
+        .then(res => res.ok ? res.json() : null)
+        .then(data => {
+          if (data && data.tasks) {
+            setTasks(data.tasks);
+          }
+        })
+        .catch(() => {})
+        .finally(() => setIsLoading(false));
     }
   }, []);
 
@@ -68,11 +99,29 @@ export default function ReportsPage() {
   }
 
   const handleGenerateReport = (reportType: string) => {
-    alert(`Generating ${reportType} report...`);
+    alert(`Generating latest ${reportType} report...`);
   };
 
   const handleExportReport = (format: string) => {
-    alert(`Exporting report as ${format}...`);
+    if (format === 'CSV') {
+      const headers = 'ID,Title,Status,Assignee,Priority,DueDate\n';
+      const rows = tasks.map(t => `"${t.id}","${t.title}","${t.status}","${t.assignee}","${t.priority}","${t.dueDate || ''}"`).join('\n');
+      const blob = new Blob([headers + rows], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `PMCS_Report_${new Date().toISOString().split('T')[0]}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } else {
+      const blob = new Blob([JSON.stringify({ tasks, reportData, exportedAt: new Date().toISOString() }, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `PMCS_Report_${new Date().toISOString().split('T')[0]}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
   };
 
   return (

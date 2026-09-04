@@ -181,6 +181,22 @@ export default function ActivityPage() {
     } else {
       setActivities(sampleActivities);
       setIsLoading(false);
+
+      fetch('/api/activity')
+        .then(res => res.ok ? res.json() : null)
+        .then(data => {
+          if (data && data.activity && data.activity.length > 0) {
+            const mapped = data.activity.map((a: any) => ({
+              id: a.id,
+              user: a.userName,
+              action: a.actionType.replace(/_/g, ' ').toUpperCase(),
+              object: a.description,
+              timestamp: a.timestamp.replace('T', ' ').substring(0, 19),
+            }));
+            setActivities(mapped);
+          }
+        })
+        .catch(() => {});
     }
   }, []);
 

@@ -85,6 +85,61 @@ export default function CalendarPage() {
     } else {
       setEvents(sampleEvents);
       setIsLoading(false);
+
+      Promise.all([
+        fetch('/api/tasks').then(r => r.ok ? r.json() : null),
+        fetch('/api/meetings').then(r => r.ok ? r.json() : null),
+        fetch('/api/milestones').then(r => r.ok ? r.json() : null),
+      ]).then(([tasksData, meetingsData, msData]) => {
+        const liveEvents: any[] = [];
+
+        if (tasksData?.tasks) {
+          tasksData.tasks.forEach((t: any) => {
+            if (t.dueDate) {
+              liveEvents.push({
+                id: `E-${t.id}`,
+                title: `${t.title} (Deadline)`,
+                date: t.dueDate,
+                time: 'All Day',
+                type: 'task-deadline',
+                description: t.description || `Due date for task ${t.id}`,
+              });
+            }
+          });
+        }
+
+        if (meetingsData?.meetings) {
+          meetingsData.meetings.forEach((m: any) => {
+            liveEvents.push({
+              id: `E-${m.id}`,
+              title: m.title,
+              date: m.date,
+              time: m.time || '14:00',
+              type: 'meeting',
+              description: m.agenda || 'Project Meeting',
+            });
+          });
+        }
+
+        if (msData?.milestones) {
+          msData.milestones.forEach((ms: any) => {
+            if (ms.targetDate) {
+              liveEvents.push({
+                id: `E-${ms.id}`,
+                title: `Milestone: ${ms.name}`,
+                date: ms.targetDate,
+                time: 'All Day',
+                type: 'milestone',
+                description: ms.description || 'Target date for milestone',
+              });
+            }
+          });
+        }
+
+        if (liveEvents.length > 0) {
+          setEvents(liveEvents);
+        }
+      }).catch(() => {});
     }
   }, []);
 

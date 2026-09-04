@@ -2,337 +2,422 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { isAuthenticated, logout } from '@/lib/auth';
+import { isAuthenticated, getCurrentUser } from '@/lib/auth';
 
 export default function DocumentsPage() {
   const router = useRouter();
   const [documents, setDocuments] = useState<any[]>([]);
+  const [currentUser, setCurrentUser] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [filter, setFilter] = useState<'all' | 'planning' | 'research' | 'datasets' | 'code' | 'reports' | 'meeting' | 'presentations' | 'diagrams' | 'results' | 'final' | 'other'>('all');
+  const [filter, setFilter] = useState<string>('all');
 
-  // Sample documents based on Chronicle_Project_Management_System.xlsx
-  const initialDocuments = [
-    {
-      id: 'D-001',
-      name: 'Project Charter',
-      description: 'Initial project charter outlining objectives and scope',
-      category: 'Project Planning',
-      owner: 'Anurag',
-      version: '1.0',
-      status: 'Approved',
-      fileOrLink: 'https://drive.google.com/file/d/example1/view',
-      relatedTask: 'T-001',
-      uploadedDate: '2026-08-01',
-      lastUpdatedDate: '2026-08-15',
-      tags: ['charter', 'planning', 'approval']
-    },
-    {
-      id: 'D-002',
-      name: 'Linux Dataset Requirements',
-      description: 'Requirements document for Linux dataset selection',
-      category: 'Research Papers',
-      owner: 'Divyanshi',
-      version: '0.8',
-      status: 'In Review',
-      fileOrLink: 'https://drive.google.com/file/d/example2/view',
-      relatedTask: 'T-002',
-      uploadedDate: '2026-08-05',
-      lastUpdatedDate: '2026-08-20',
-      tags: ['requirements', 'linux', 'datasets']
-    },
-    {
-      id: 'D-003',
-      name: 'Literature Review Template',
-      description: 'Standard template for literature reviews',
-      category: 'Research Papers',
-      owner: 'Tanishk',
-      version: '1.2',
-      status: 'Approved',
-      fileOrLink: 'https://drive.google.com/file/d/example3/view',
-      relatedTask: 'T-003',
-      uploadedDate: '2026-08-10',
-      lastUpdatedDate: '2026-08-25',
-      tags: ['template', 'literature', 'review']
-    },
-    {
-      id: 'D-004',
-      name: 'Data Acquisition Plan',
-      description: 'Plan for acquiring and accessing datasets',
-      category: 'Datasets',
-      owner: 'Prajjwal',
-      version: '0.9',
-      status: 'Draft',
-      fileOrLink: 'https://drive.google.com/file/d/example4/view',
-      relatedTask: 'T-004',
-      uploadedDate: '2026-08-12',
-      lastUpdatedDate: '2026-08-22',
-      tags: ['acquisition', 'plan', 'datasets']
-    },
-    {
-      id: 'D-005',
-      name: 'Preprocessing Scripts',
-      description: 'Python scripts for data preprocessing',
-      category: 'Code Documentation',
-      owner: 'Anurag',
-      version: '1.0',
-      status: 'Approved',
-      fileOrLink: 'https://drive.google.com/file/d/example5/view',
-      relatedTask: 'T-005',
-      uploadedDate: '2026-08-18',
-      lastUpdatedDate: '2026-08-28',
-      tags: ['preprocessing', 'scripts', 'python']
+  // Add Document Modal
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [newDoc, setNewDoc] = useState({
+    name: '',
+    description: '',
+    category: 'Project Planning',
+    version: '1.0',
+    status: 'Draft',
+    fileOrLink: '',
+    tags: '',
+  });
+
+  const loadDocuments = async () => {
+    try {
+      const res = await fetch('/api/documents');
+      if (res.ok) {
+        const data = await res.json();
+        setDocuments(data.documents);
+      }
+    } catch (err) {
+      console.error('Failed to load documents:', err);
     }
-  ];
+  };
 
   useEffect(() => {
     if (!isAuthenticated()) {
       router.replace('/login');
     } else {
-      setDocuments(initialDocuments);
-      setIsLoading(false);
+      setCurrentUser(getCurrentUser());
+      loadDocuments().finally(() => setIsLoading(false));
     }
   }, []);
 
-  const handleLogout = () => {
-    logout();
-    router.replace('/login');
+  const handleCreateDocument = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newDoc.name.trim()) return;
+
+    setIsSubmitting(true);
+    try {
+      const tagsArray = newDoc.tags.split(',').map(t => t.trim()).filter(Boolean);
+      const res = await fetch('/api/documents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...newDoc,
+          tags: tagsArray,
+        }),
+      });
+
+      if (res.ok) {
+        setIsModalOpen(false);
+        setNewDoc({
+          name: '',
+          description: '',
+          category: 'Project Planning',
+          version: '1.0',
+          status: 'Draft',
+          fileOrLink: '',
+          tags: '',
+        });
+        await loadDocuments();
+      }
+    } catch (err) {
+      console.error('Failed to add document:', err);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleAddDocument = () => {
-    router.push('/documents/new');
+  const handleStatusChange = async (id: string, newStatus: string) => {
+    try {
+      const res = await fetch(`/api/documents/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (res.ok) {
+        setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: newStatus } : d));
+      }
+    } catch (err) {
+      console.error('Failed to update status:', err);
+    }
+  };
+
+  const handleDeleteDocument = async (id: string) => {
+    if (!confirm(`Are you sure you want to delete document ${id}?`)) return;
+    try {
+      const res = await fetch(`/api/documents/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setDocuments(prev => prev.filter(d => d.id !== id));
+      }
+    } catch (err) {
+      console.error('Failed to delete document:', err);
+    }
   };
 
   if (isLoading) {
     return (
-      <div style={{ padding: '2rem', textAlign: 'center' }}>
-        <p>Loading documents...</p>
+      <div style={{ padding: '3rem', textAlign: 'center', color: '#6c757d' }}>
+        <p>Loading project documents...</p>
       </div>
     );
   }
 
-  const filteredDocuments = documents.filter(doc => {
+  const filteredDocs = documents.filter(doc => {
     if (filter === 'all') return true;
-    return doc.category.toLowerCase() === filter;
+    return doc.category.toLowerCase().includes(filter.toLowerCase()) || doc.status.toLowerCase() === filter.toLowerCase();
   });
 
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'Approved': return '#28a745';
+      case 'In Review': return '#ffc107';
+      case 'Draft': return '#6c757d';
+      case 'Archived': return '#343a40';
+      default: return '#0d6efd';
+    }
+  };
+
   return (
-    <main style={{ minHeight: '100vh', backgroundColor: '#f8f9fa', padding: '2rem' }}>
+    <main style={{ minHeight: '100vh', backgroundColor: '#f8f9fa', padding: '2rem 1.5rem' }}>
       <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-          <h1 style={{ color: '#212529', margin: 0 }}>Documents</h1>
           <div>
-            <button
-              onClick={handleAddDocument}
-              style={{
-                backgroundColor: '#0d6efd',
-                color: 'white',
-                border: 'none',
-                padding: '0.5rem 1rem',
-                borderRadius: '4px',
-                cursor: 'pointer'
-              }}
-            >
-              Add Document
-            </button>
+            <h1 style={{ color: '#212529', margin: 0, fontSize: '1.75rem', fontWeight: 700 }}>Documents & Deliverables</h1>
+            <p style={{ margin: '0.25rem 0 0', color: '#6c757d', fontSize: '0.9rem' }}>
+              Project charters, specifications, templates, and reports
+            </p>
           </div>
+          <button
+            onClick={() => setIsModalOpen(true)}
+            style={{
+              backgroundColor: '#0d6efd',
+              color: 'white',
+              border: 'none',
+              padding: '0.6rem 1.25rem',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: '0.9rem',
+              boxShadow: '0 2px 4px rgba(13,110,253,0.2)',
+            }}
+          >
+            + Add Document
+          </button>
         </div>
 
         {/* Filter Tabs */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '2rem' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1.5rem' }}>
           <button
             onClick={() => setFilter('all')}
-            className={filter === 'all' ? 'active-filter' : ''}
             style={{
-              padding: '0.5rem 1rem',
+              padding: '0.45rem 0.9rem',
               border: '1px solid #dee2e6',
               backgroundColor: filter === 'all' ? '#0d6efd' : 'white',
               color: filter === 'all' ? 'white' : '#212529',
-              borderRadius: '4px',
-              cursor: 'pointer'
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '0.85rem',
+              fontWeight: 500,
             }}
           >
             All ({documents.length})
           </button>
           <button
             onClick={() => setFilter('planning')}
-            className={filter === 'planning' ? 'active-filter' : ''}
             style={{
-              padding: '0.5rem 1rem',
+              padding: '0.45rem 0.9rem',
               border: '1px solid #dee2e6',
               backgroundColor: filter === 'planning' ? '#0d6efd' : 'white',
               color: filter === 'planning' ? 'white' : '#212529',
-              borderRadius: '4px',
-              cursor: 'pointer'
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '0.85rem',
+              fontWeight: 500,
             }}
           >
-            Planning ({documents.filter(d => d.category === 'Project Planning').length})
+            Planning
           </button>
           <button
             onClick={() => setFilter('research')}
-            className={filter === 'research' ? 'active-filter' : ''}
             style={{
-              padding: '0.5rem 1rem',
+              padding: '0.45rem 0.9rem',
               border: '1px solid #dee2e6',
               backgroundColor: filter === 'research' ? '#0d6efd' : 'white',
               color: filter === 'research' ? 'white' : '#212529',
-              borderRadius: '4px',
-              cursor: 'pointer'
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '0.85rem',
+              fontWeight: 500,
             }}
           >
-            Research ({documents.filter(d => d.category === 'Research Papers').length})
+            Research
           </button>
           <button
             onClick={() => setFilter('datasets')}
-            className={filter === 'datasets' ? 'active-filter' : ''}
             style={{
-              padding: '0.5rem 1rem',
+              padding: '0.45rem 0.9rem',
               border: '1px solid #dee2e6',
               backgroundColor: filter === 'datasets' ? '#0d6efd' : 'white',
               color: filter === 'datasets' ? 'white' : '#212529',
-              borderRadius: '4px',
-              cursor: 'pointer'
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '0.85rem',
+              fontWeight: 500,
             }}
           >
-            Datasets ({documents.filter(d => d.category === 'Datasets').length})
+            Datasets
           </button>
           <button
-            onClick={() => setFilter('code')}
-            className={filter === 'code' ? 'active-filter' : ''}
+            onClick={() => setFilter('approved')}
             style={{
-              padding: '0.5rem 1rem',
+              padding: '0.45rem 0.9rem',
               border: '1px solid #dee2e6',
-              backgroundColor: filter === 'code' ? '#0d6efd' : 'white',
-              color: filter === 'code' ? 'white' : '#212529',
-              borderRadius: '4px',
-              cursor: 'pointer'
+              backgroundColor: filter === 'approved' ? '#28a745' : 'white',
+              color: filter === 'approved' ? 'white' : '#212529',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '0.85rem',
+              fontWeight: 500,
             }}
           >
-            Code ({documents.filter(d => d.category === 'Code Documentation').length})
-          </button>
-          <button
-            onClick={() => setFilter('reports')}
-            className={filter === 'reports' ? 'active-filter' : ''}
-            style={{
-              padding: '0.5rem 1rem',
-              border: '1px solid #dee2e6',
-              backgroundColor: filter === 'reports' ? '#0d6efd' : 'white',
-              color: filter === 'reports' ? 'white' : '#212529',
-              borderRadius: '4px',
-              cursor: 'pointer'
-            }}
-          >
-            Reports ({documents.filter(d => d.category === 'Reports').length})
+            Approved
           </button>
         </div>
 
-        {/* Documents List */}
-        <div style={{ backgroundColor: 'white', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
-          {filteredDocuments.length === 0 ? (
-            <div style={{ padding: '2rem', textAlign: 'center', color: '#6c757d' }}>
-              <p>No documents found</p>
-              {filter !== 'all' && (
-                <button
-                  onClick={() => setFilter('all')}
-                  style={{ marginTop: '1rem', backgroundColor: '#0d6efd', color: 'white', border: 'none', padding: '0.5rem 1rem', borderRadius: '4px', cursor: 'pointer' }}
+        {/* Document Cards */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '1.25rem' }}>
+          {filteredDocs.map(doc => (
+            <div key={doc.id} style={{ backgroundColor: 'white', borderRadius: '10px', border: '1px solid #dee2e6', padding: '1.25rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                  <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#0d6efd', backgroundColor: '#e7f1ff', padding: '0.15rem 0.45rem', borderRadius: '4px' }}>
+                    {doc.id} • v{doc.version}
+                  </span>
+                  <select
+                    value={doc.status}
+                    onChange={(e) => handleStatusChange(doc.id, e.target.value)}
+                    style={{
+                      padding: '0.2rem 0.5rem',
+                      fontSize: '0.75rem',
+                      borderRadius: '4px',
+                      border: '1px solid #ced4da',
+                      backgroundColor: '#fff',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <option value="Draft">Draft</option>
+                    <option value="In Review">In Review</option>
+                    <option value="Approved">Approved</option>
+                    <option value="Archived">Archived</option>
+                  </select>
+                </div>
+                <h3 style={{ margin: '0 0 0.35rem', fontSize: '1.1rem', color: '#212529' }}>{doc.name}</h3>
+                <p style={{ margin: '0 0 0.75rem', color: '#6c757d', fontSize: '0.875rem' }}>{doc.description}</p>
+                <div style={{ fontSize: '0.8rem', color: '#495057', marginBottom: '0.5rem' }}>
+                  📁 Category: <strong>{doc.category}</strong>
+                </div>
+                <div style={{ fontSize: '0.8rem', color: '#495057', marginBottom: '0.75rem' }}>
+                  👤 Owner: <strong>{doc.owner}</strong> • Updated: {doc.lastUpdatedDate}
+                </div>
+                {doc.tags && doc.tags.length > 0 && (
+                  <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+                    {doc.tags.map((tag: string, idx: number) => (
+                      <span key={idx} style={{ backgroundColor: '#f1f3f5', color: '#495057', padding: '0.1rem 0.4rem', borderRadius: '4px', fontSize: '0.7rem' }}>
+                        #{tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '0.75rem', borderTop: '1px solid #f1f3f5' }}>
+                <a
+                  href={doc.fileOrLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ fontSize: '0.85rem', color: '#0d6efd', textDecoration: 'none', fontWeight: 600 }}
                 >
-                  Show All Documents
-                </button>
-              )}
+                  🔗 Open Document ↗
+                </a>
+                {currentUser?.role === 'admin' && (
+                  <button
+                    onClick={() => handleDeleteDocument(doc.id)}
+                    style={{ backgroundColor: 'transparent', color: '#dc3545', border: 'none', cursor: 'pointer', fontSize: '0.8rem' }}
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
             </div>
-          ) : (
-            <div style={{ padding: '1.5rem' }}>
-              {filteredDocuments.map((document) => (
-                <div key={document.id} style={{ borderBottom: '1px solid #eee', padding: '1.5rem 0' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div style={{ flex: 1 }}>
-                      <h4 style={{ margin: '0 0 0.25rem 0', color: '#212529' }}>
-                        {document.name}
-                      </h4>
-                      <p style={{ margin: '0 0 0.5rem 0', color: '#6c757d', fontSize: '0.9rem' }}>
-                        {document.description}
-                      </p>
-                      <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-                        <span
-                          style={{
-                            backgroundColor: getStatusBadgeColor(document.status),
-                            color: 'white',
-                            padding: '0.25rem 0.5rem',
-                            borderRadius: '3px',
-                            fontSize: '0.75rem',
-                            fontWeight: 600
-                          }}
-                        >
-                          {document.status}
-                        </span>
-                        <span
-                          style={{
-                            backgroundColor: '#e2e3e5',
-                            color: '#383d41',
-                            padding: '0.25rem 0.5rem',
-                            borderRadius: '3px',
-                            fontSize: '0.75rem',
-                            fontWeight: 600
-                          }}
-                        >
-                          {document.category}
-                        </span>
-                        <span style={{ fontSize: '0.85rem', color: '#6c757d' }}>
-                          Version: {document.version}
-                        </span>
-                        <span style={{ fontSize: '0.85rem', color: '#6c757d' }}>
-                          By: {document.owner}
-                        </span>
-                      </div>
-                      <div style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#6c757d' }}>
-                        Related Task: {document.relatedTask || 'None'}
-                      </div>
-                      <div style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#6c757d' }}>
-                        Tags: {document.tags?.join(', ') || 'None'}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right', minWidth: '120px' }}>
-                      <div style={{ fontSize: '0.85rem', color: '#6c757d', marginBottom: '0.25rem' }}>
-                        Uploaded: {document.uploadedDate}
-                      </div>
-                      <div style={{ fontSize: '0.75rem', color: '#6c757d' }}>
-                        Updated: {document.lastUpdatedDate}
-                      </div>
-                      <a
-                        href={document.fileOrLink}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{
-                          display: 'inline-block',
-                          padding: '0.5rem 1rem',
-                          backgroundColor: '#0d6efd',
-                          color: 'white',
-                          textDecoration: 'none',
-                          borderRadius: '4px',
-                          fontSize: '0.875rem'
-                        }}
-                      >
-                        View Document
-                      </a>
-                    </div>
+          ))}
+        </div>
+
+        {/* Modal */}
+        {isModalOpen && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 2000,
+            padding: '1rem',
+          }}>
+            <div style={{
+              backgroundColor: 'white',
+              borderRadius: '10px',
+              padding: '2rem',
+              maxWidth: '500px',
+              width: '100%',
+            }}>
+              <h2 style={{ margin: '0 0 1.25rem', fontSize: '1.3rem' }}>Add Document / Deliverable</h2>
+              <form onSubmit={handleCreateDocument}>
+                <div style={{ marginBottom: '1rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.25rem' }}>Document Name *</label>
+                  <input
+                    type="text"
+                    required
+                    value={newDoc.name}
+                    onChange={(e) => setNewDoc({ ...newDoc, name: e.target.value })}
+                    placeholder="e.g. Architecture Overview Document"
+                    style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #ced4da' }}
+                  />
+                </div>
+                <div style={{ marginBottom: '1rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.25rem' }}>Description</label>
+                  <textarea
+                    rows={2}
+                    value={newDoc.description}
+                    onChange={(e) => setNewDoc({ ...newDoc, description: e.target.value })}
+                    style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #ced4da' }}
+                  />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.25rem' }}>Category</label>
+                    <select
+                      value={newDoc.category}
+                      onChange={(e) => setNewDoc({ ...newDoc, category: e.target.value })}
+                      style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #ced4da' }}
+                    >
+                      <option value="Project Planning">Project Planning</option>
+                      <option value="Research Papers">Research Papers</option>
+                      <option value="Datasets">Datasets</option>
+                      <option value="Code & Architecture">Code & Architecture</option>
+                      <option value="Meeting Notes">Meeting Notes</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.25rem' }}>Version</label>
+                    <input
+                      type="text"
+                      value={newDoc.version}
+                      onChange={(e) => setNewDoc({ ...newDoc, version: e.target.value })}
+                      placeholder="1.0"
+                      style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #ced4da' }}
+                    />
                   </div>
                 </div>
-              ))}
+                <div style={{ marginBottom: '1rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.25rem' }}>File URL or Drive Link</label>
+                  <input
+                    type="url"
+                    value={newDoc.fileOrLink}
+                    onChange={(e) => setNewDoc({ ...newDoc, fileOrLink: e.target.value })}
+                    placeholder="https://drive.google.com/..."
+                    style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #ced4da' }}
+                  />
+                </div>
+                <div style={{ marginBottom: '1.5rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.25rem' }}>Tags (comma-separated)</label>
+                  <input
+                    type="text"
+                    value={newDoc.tags}
+                    onChange={(e) => setNewDoc({ ...newDoc, tags: e.target.value })}
+                    placeholder="architecture, spec, v1"
+                    style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #ced4da' }}
+                  />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                  <button
+                    type="button"
+                    onClick={() => setIsModalOpen(false)}
+                    style={{ padding: '0.5rem 1rem', border: '1px solid #ced4da', backgroundColor: '#f8f9fa', borderRadius: '6px', cursor: 'pointer' }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    style={{ padding: '0.5rem 1.25rem', backgroundColor: '#0d6efd', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}
+                  >
+                    {isSubmitting ? 'Saving...' : 'Add Document'}
+                  </button>
+                </div>
+              </form>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </main>
   );
 }
-
-// Helper functions for status badge colors
-const getStatusBadgeColor = (status: string) => {
-  switch (status) {
-    case 'Approved': return '#28a745';
-    case 'In Review': return '#ffc107';
-    case 'Draft': return '#6c757d';
-    case 'Archived': return '#dc3545';
-    default: return '#6c757d';
-  }
-};

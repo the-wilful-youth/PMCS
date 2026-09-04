@@ -2,345 +2,391 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { isAuthenticated, logout } from '@/lib/auth';
+import { isAuthenticated, getCurrentUser } from '@/lib/auth';
 
 export default function ResearchPage() {
   const router = useRouter();
   const [research, setResearch] = useState<any[]>([]);
+  const [currentUser, setCurrentUser] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [filter, setFilter] = useState<'all' | 'not-read' | 'reading' | 'reviewed' | 'used'>('all');
+  const [filter, setFilter] = useState<string>('all');
 
-  // Sample research papers based on Chronicle_Project_Management_System.xlsx
-  const initialResearch = [
-    {
-      id: 'R-001',
-      title: 'A Survey of Linux Kernel Performance Analysis Tools',
-      authors: 'Smith, J., Johnson, A., Williams, K.',
-      publicationYear: 2023,
-      url: 'https://example.com/linux-perf-survey-2023',
-      pdfFile: 'https://example.com/papers/linux-perf-survey-2023.pdf',
-      topic: 'Performance Analysis',
-      relevanceScore: 9,
-      keyFindings: 'Comprehensive overview of modern Linux performance analysis tools including perf, eBPF, and tracepoints.',
-      datasetUsed: 'Linux Kernel Trace Events',
-      methodModel: 'Systematic Literature Review',
-      limitations: 'Focuses primarily on server-grade Linux distributions',
-      responsibleMember: 'Divyanshi',
-      relatedTask: 'T-002',
-      status: 'Reviewed',
-      notes: 'Highly relevant for dataset selection phase'
-    },
-    {
-      id: 'R-002',
-      title: 'Deep Learning Approaches for Network Traffic Classification',
-      authors: 'Chen, L., Wang, Y., Zhao, Q.',
-      publicationYear: 2024,
-      url: 'https://example.com/dl-network-classification-2024',
-      pdfFile: 'https://example.com/papers/dl-network-classification-2024.pdf',
-      topic: 'Machine Learning',
-      relevanceScore: 7,
-      keyFindings: 'CNN and RNN models achieve >95% accuracy in classifying network traffic patterns.',
-      datasetUsed: 'ISCX VPN-Tor Dataset',
-      methodModel: 'Convolutional Neural Networks',
-      limitations: 'Requires significant computational resources for training',
-      responsibleMember: 'Tanishk',
-      relatedTask: 'T-003',
-      status: 'Reading',
-      notes: 'Consider applying similar techniques to our dataset'
-    },
-    {
-      id: 'R-003',
-      title: 'Efficient Data Preprocessing Pipelines for Big Data Analytics',
-      authors: 'Garcia, M., Rodriguez, P., Lopez, S.',
-      publicationYear: 2023,
-      url: 'https://example.com/preprocessing-pipelines-2023',
-      pdfFile: 'https://example.com/papers/preprocessing-pipelines-2023.pdf',
-      topic: 'Data Engineering',
-      relevanceScore: 8,
-      keyFindings: 'Apache Spark-based pipelines reduce preprocessing time by 60% compared to traditional approaches.',
-      datasetUsed: 'TPC-H Benchmark Dataset',
-      methodModel: 'Comparative Performance Analysis',
-      limitations: 'Studies focused on batch processing rather than streaming data',
-      responsibleMember: 'Anurag',
-      relatedTask: 'T-005',
-      status: 'Used in Report',
-      notes: 'Directly applicable to our preprocessing pipeline task'
-    },
-    {
-      id: 'R-004',
-      title: 'Benchmarking Linux Filesystems for Scientific Workloads',
-      authors: 'Wilson, T., Davis, R., Clark, M.',
-      publicationYear: 2024,
-      url: 'https://example.com/linux-filesystems-benchmark-2024',
-      pdfFile: 'https://example.com/papers/linux-filesystems-benchmark-2024.pdf',
-      topic: 'Filesystems',
-      relevanceScore: 6,
-      keyFindings: 'EXT4 and XFS show comparable performance for scientific I/O workloads.',
-      datasetUsed: 'Scientific Storage Benchmark Suite',
-      methodModel: 'Performance Benchmarking',
-      limitations: 'Limited to single-node configurations',
-      responsibleMember: 'Prajjwal',
-      relatedTask: 'T-001',
-      status: 'Not Read',
-      notes: 'Lower priority but useful for workspace setup decisions'
+  // Add Paper Modal
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [newPaper, setNewPaper] = useState({
+    title: '',
+    authors: '',
+    year: new Date().getFullYear(),
+    publicationVenue: '',
+    relevance: 'High',
+    status: 'Identified',
+    fileOrLink: '',
+    keyFindings: '',
+    notes: '',
+  });
+
+  const loadResearch = async () => {
+    try {
+      const res = await fetch('/api/research');
+      if (res.ok) {
+        const data = await res.json();
+        setResearch(data.research);
+      }
+    } catch (err) {
+      console.error('Failed to load research papers:', err);
     }
-  ];
+  };
 
   useEffect(() => {
     if (!isAuthenticated()) {
       router.replace('/login');
     } else {
-      setResearch(initialResearch);
-      setIsLoading(false);
+      setCurrentUser(getCurrentUser());
+      loadResearch().finally(() => setIsLoading(false));
     }
   }, []);
 
-  const handleLogout = () => {
-    logout();
-    router.replace('/login');
+  const handleCreatePaper = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPaper.title.trim()) return;
+
+    setIsSubmitting(true);
+    try {
+      const res = await fetch('/api/research', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newPaper),
+      });
+      if (res.ok) {
+        setIsModalOpen(false);
+        setNewPaper({
+          title: '',
+          authors: '',
+          year: new Date().getFullYear(),
+          publicationVenue: '',
+          relevance: 'High',
+          status: 'Identified',
+          fileOrLink: '',
+          keyFindings: '',
+          notes: '',
+        });
+        await loadResearch();
+      }
+    } catch (err) {
+      console.error('Failed to add research paper:', err);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleAddResearch = () => {
-    router.push('/research/new');
+  const handleStatusChange = async (id: string, newStatus: string) => {
+    try {
+      const res = await fetch(`/api/research/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (res.ok) {
+        setResearch(prev => prev.map(r => r.id === id ? { ...r, status: newStatus } : r));
+      }
+    } catch (err) {
+      console.error('Failed to update research status:', err);
+    }
+  };
+
+  const handleDeletePaper = async (id: string) => {
+    if (!confirm(`Are you sure you want to delete paper ${id}?`)) return;
+    try {
+      const res = await fetch(`/api/research/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setResearch(prev => prev.filter(r => r.id !== id));
+      }
+    } catch (err) {
+      console.error('Failed to delete research paper:', err);
+    }
   };
 
   if (isLoading) {
     return (
-      <div style={{ padding: '2rem', textAlign: 'center' }}>
-        <p>Loading research...</p>
+      <div style={{ padding: '3rem', textAlign: 'center', color: '#6c757d' }}>
+        <p>Loading research library...</p>
       </div>
     );
   }
 
-  const filteredResearch = research.filter(item => {
+  const filteredResearch = research.filter(p => {
     if (filter === 'all') return true;
-    return item.status.toLowerCase().replace(' ', '-') === filter ||
-           (filter === 'used' && item.status === 'Used in Report') ||
-           (filter === 'not-read' && item.status === 'Not Read');
+    return p.status.toLowerCase() === filter.toLowerCase() || p.relevance.toLowerCase() === filter.toLowerCase();
   });
 
   return (
-    <main style={{ minHeight: '100vh', backgroundColor: '#f8f9fa', padding: '2rem' }}>
+    <main style={{ minHeight: '100vh', backgroundColor: '#f8f9fa', padding: '2rem 1.5rem' }}>
       <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-          <h1 style={{ color: '#212529', margin: 0 }}>Research</h1>
           <div>
-            <button
-              onClick={handleAddResearch}
-              style={{
-                backgroundColor: '#0d6efd',
-                color: 'white',
-                border: 'none',
-                padding: '0.5rem 1rem',
-                borderRadius: '4px',
-                cursor: 'pointer'
-              }}
-            >
-              Add Research Paper
-            </button>
+            <h1 style={{ color: '#212529', margin: 0, fontSize: '1.75rem', fontWeight: 700 }}>Research Papers</h1>
+            <p style={{ margin: '0.25rem 0 0', color: '#6c757d', fontSize: '0.9rem' }}>
+              Academic literature, methodologies, citations, and key findings
+            </p>
           </div>
+          <button
+            onClick={() => setIsModalOpen(true)}
+            style={{
+              backgroundColor: '#0d6efd',
+              color: 'white',
+              border: 'none',
+              padding: '0.6rem 1.25rem',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: '0.9rem',
+              boxShadow: '0 2px 4px rgba(13,110,253,0.2)',
+            }}
+          >
+            + Add Paper
+          </button>
         </div>
 
         {/* Filter Tabs */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '2rem' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1.5rem' }}>
           <button
             onClick={() => setFilter('all')}
-            className={filter === 'all' ? 'active-filter' : ''}
             style={{
-              padding: '0.5rem 1rem',
+              padding: '0.45rem 0.9rem',
               border: '1px solid #dee2e6',
               backgroundColor: filter === 'all' ? '#0d6efd' : 'white',
               color: filter === 'all' ? 'white' : '#212529',
-              borderRadius: '4px',
-              cursor: 'pointer'
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '0.85rem',
+              fontWeight: 500,
             }}
           >
             All ({research.length})
           </button>
           <button
-            onClick={() => setFilter('not-read')}
-            className={filter === 'not-read' ? 'active-filter' : ''}
+            onClick={() => setFilter('identified')}
             style={{
-              padding: '0.5rem 1rem',
+              padding: '0.45rem 0.9rem',
               border: '1px solid #dee2e6',
-              backgroundColor: filter === 'not-read' ? '#0d6efd' : 'white',
-              color: filter === 'not-read' ? 'white' : '#212529',
-              borderRadius: '4px',
-              cursor: 'pointer'
+              backgroundColor: filter === 'identified' ? '#0d6efd' : 'white',
+              color: filter === 'identified' ? 'white' : '#212529',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '0.85rem',
+              fontWeight: 500,
             }}
           >
-            Not Read ({research.filter(r => r.status === 'Not Read').length})
+            Identified
           </button>
           <button
             onClick={() => setFilter('reading')}
-            className={filter === 'reading' ? 'active-filter' : ''}
             style={{
-              padding: '0.5rem 1rem',
+              padding: '0.45rem 0.9rem',
               border: '1px solid #dee2e6',
               backgroundColor: filter === 'reading' ? '#0d6efd' : 'white',
               color: filter === 'reading' ? 'white' : '#212529',
-              borderRadius: '4px',
-              cursor: 'pointer'
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '0.85rem',
+              fontWeight: 500,
             }}
           >
-            Reading ({research.filter(r => r.status === 'Reading').length})
+            Reading
           </button>
           <button
-            onClick={() => setFilter('reviewed')}
-            className={filter === 'reviewed' ? 'active-filter' : ''}
+            onClick={() => setFilter('summarized')}
             style={{
-              padding: '0.5rem 1rem',
+              padding: '0.45rem 0.9rem',
               border: '1px solid #dee2e6',
-              backgroundColor: filter === 'reviewed' ? '#0d6efd' : 'white',
-              color: filter === 'reviewed' ? 'white' : '#212529',
-              borderRadius: '4px',
-              cursor: 'pointer'
+              backgroundColor: filter === 'summarized' ? '#0d6efd' : 'white',
+              color: filter === 'summarized' ? 'white' : '#212529',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '0.85rem',
+              fontWeight: 500,
             }}
           >
-            Reviewed ({research.filter(r => r.status === 'Reviewed').length})
-          </button>
-          <button
-            onClick={() => setFilter('used')}
-            className={filter === 'used' ? 'active-filter' : ''}
-            style={{
-              padding: '0.5rem 1rem',
-              border: '1px solid #dee2e6',
-              backgroundColor: filter === 'used' ? '#0d6efd' : 'white',
-              color: filter === 'used' ? 'white' : '#212529',
-              borderRadius: '4px',
-              cursor: 'pointer'
-            }}
-          >
-            Used in Report ({research.filter(r => r.status === 'Used in Report').length})
+            Summarized
           </button>
         </div>
 
-        {/* Research List */}
-        <div style={{ backgroundColor: 'white', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
-          {filteredResearch.length === 0 ? (
-            <div style={{ padding: '2rem', textAlign: 'center', color: '#6c757d' }}>
-              <p>No research papers found</p>
-              {filter !== 'all' && (
-                <button
-                  onClick={() => setFilter('all')}
-                  style={{ marginTop: '1rem', backgroundColor: '#0d6efd', color: 'white', border: 'none', padding: '0.5rem 1rem', borderRadius: '4px', cursor: 'pointer' }}
-                >
-                  Show All Research
-                </button>
-              )}
-            </div>
-          ) : (
-            <div style={{ padding: '1.5rem' }}>
-              {filteredResearch.map((item) => (
-                <div key={item.id} style={{ borderBottom: '1px solid #eee', padding: '1.5rem 0' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div style={{ flex: 1 }}>
-                      <h4 style={{ margin: '0 0 0.25rem 0', color: '#212529' }}>
-                        {item.title}
-                      </h4>
-                      <p style={{ margin: '0 0 0.5rem 0', color: '#6c757d', fontSize: '0.9rem' }}>
-                        {item.keyFindings}
-                      </p>
-                      <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-                        <span
-                          style={{
-                            backgroundColor: getStatusBadgeColor(item.status),
-                            color: 'white',
-                            padding: '0.25rem 0.5rem',
-                            borderRadius: '3px',
-                            fontSize: '0.75rem',
-                            fontWeight: 600
-                          }}
-                        >
-                          {item.status}
-                        </span>
-                        <span
-                          style={{
-                            backgroundColor: '#e2e3e5',
-                            color: '#383d41',
-                            padding: '0.25rem 0.5rem',
-                            borderRadius: '3px',
-                            fontSize: '0.75rem',
-                            fontWeight: 600
-                          }}
-                        >
-                          {item.topic}
-                        </span>
-                        <span style={{ fontSize: '0.85rem', color: '#6c757d' }}>
-                          Relevance: {item.relevanceScore}/10
-                        </span>
-                        <span style={{ fontSize: '0.85rem', color: '#6c757d' }}>
-                          By: {item.responsibleMember}
-                        </span>
-                      </div>
-                      <div style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#6c757d' }}>
-                        Related Task: {item.relatedTask || 'None'}
-                      </div>
-                      <div style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#6c757d' }}>
-                        Authors: {item.authors} • Year: {item.publicationYear}
-                      </div>
+        {/* Papers List */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          {filteredResearch.map(paper => (
+            <div key={paper.id} style={{ backgroundColor: 'white', borderRadius: '10px', border: '1px solid #dee2e6', padding: '1.25rem 1.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem' }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.35rem' }}>
+                    <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#0d6efd', backgroundColor: '#e7f1ff', padding: '0.15rem 0.45rem', borderRadius: '4px' }}>
+                      {paper.id} • {paper.year}
+                    </span>
+                    <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#212529' }}>{paper.title}</h3>
+                  </div>
+                  <div style={{ fontSize: '0.85rem', color: '#6c757d', marginBottom: '0.5rem' }}>
+                    Authors: <strong>{paper.authors}</strong> • Venue: {paper.publicationVenue || 'Conference/Journal'}
+                  </div>
+
+                  {paper.keyFindings && (
+                    <div style={{ backgroundColor: '#f8f9fa', padding: '0.6rem 0.85rem', borderRadius: '6px', fontSize: '0.85rem', color: '#333', marginBottom: '0.5rem' }}>
+                      <strong>Key Findings:</strong> {paper.keyFindings}
                     </div>
-                    <div style={{ textAlign: 'right', minWidth: '140px' }}>
-                      <div style={{ fontSize: '0.85rem', color: '#6c757d', marginBottom: '0.25rem' }}>
-                        Published: {item.publicationYear}
-                      </div>
-                      <div style={{ marginTop: '0.25rem' }}>
-                        <a
-                          href={item.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{
-                            display: 'inline-block',
-                            marginBottom: '0.25rem',
-                            padding: '0.25rem 0.5rem',
-                            backgroundColor: '#0d6efd',
-                            color: 'white',
-                            textDecoration: 'none',
-                            borderRadius: '3px',
-                            fontSize: '0.75rem'
-                          }}
-                        >
-                          View Paper
-                        </a>
-                        {item.pdfFile && (
-                          <a
-                            href={item.pdfFile}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{
-                              display: 'inline-block',
-                              padding: '0.25rem 0.5rem',
-                              backgroundColor: '#28a745',
-                              color: 'white',
-                              textDecoration: 'none',
-                              borderRadius: '3px',
-                              fontSize: '0.75rem'
-                            }}
-                          >
-                            View PDF
-                          </a>
-                        )}
-                      </div>
-                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                    <span style={{ backgroundColor: '#e2e3e5', color: '#383d41', padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600 }}>
+                      {paper.relevance} Relevance
+                    </span>
+                    {paper.fileOrLink && (
+                      <a href={paper.fileOrLink} target="_blank" rel="noopener noreferrer" style={{ fontSize: '0.85rem', color: '#0d6efd', textDecoration: 'none', fontWeight: 600 }}>
+                        🔗 View Paper Link ↗
+                      </a>
+                    )}
                   </div>
                 </div>
-              ))}
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <select
+                    value={paper.status}
+                    onChange={(e) => handleStatusChange(paper.id, e.target.value)}
+                    style={{
+                      padding: '0.35rem 0.65rem',
+                      fontSize: '0.825rem',
+                      borderRadius: '6px',
+                      border: '1px solid #ced4da',
+                      backgroundColor: '#fff',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <option value="Identified">Identified</option>
+                    <option value="Reading">Reading</option>
+                    <option value="Summarized">Summarized</option>
+                    <option value="Applied">Applied</option>
+                  </select>
+
+                  {currentUser?.role === 'admin' && (
+                    <button
+                      onClick={() => handleDeletePaper(paper.id)}
+                      style={{ backgroundColor: 'transparent', color: '#dc3545', border: 'none', cursor: 'pointer', fontSize: '0.8rem' }}
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
-          )}
+          ))}
         </div>
+
+        {/* Modal */}
+        {isModalOpen && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 2000,
+            padding: '1rem',
+          }}>
+            <div style={{
+              backgroundColor: 'white',
+              borderRadius: '10px',
+              padding: '2rem',
+              maxWidth: '550px',
+              width: '100%',
+            }}>
+              <h2 style={{ margin: '0 0 1.25rem', fontSize: '1.3rem' }}>Add Research Paper</h2>
+              <form onSubmit={handleCreatePaper}>
+                <div style={{ marginBottom: '1rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.25rem' }}>Title *</label>
+                  <input
+                    type="text"
+                    required
+                    value={newPaper.title}
+                    onChange={(e) => setNewPaper({ ...newPaper, title: e.target.value })}
+                    placeholder="e.g. Memory profiling in Linux containers"
+                    style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #ced4da' }}
+                  />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.25rem' }}>Authors</label>
+                    <input
+                      type="text"
+                      value={newPaper.authors}
+                      onChange={(e) => setNewPaper({ ...newPaper, authors: e.target.value })}
+                      placeholder="e.g. Smith et al."
+                      style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #ced4da' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.25rem' }}>Year</label>
+                    <input
+                      type="number"
+                      value={newPaper.year}
+                      onChange={(e) => setNewPaper({ ...newPaper, year: Number(e.target.value) })}
+                      style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #ced4da' }}
+                    />
+                  </div>
+                </div>
+                <div style={{ marginBottom: '1rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.25rem' }}>Publication Venue</label>
+                  <input
+                    type="text"
+                    value={newPaper.publicationVenue}
+                    onChange={(e) => setNewPaper({ ...newPaper, publicationVenue: e.target.value })}
+                    placeholder="e.g. USENIX ATC, ACM SIGMETRICS"
+                    style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #ced4da' }}
+                  />
+                </div>
+                <div style={{ marginBottom: '1rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.25rem' }}>Paper Link / DOI</label>
+                  <input
+                    type="url"
+                    value={newPaper.fileOrLink}
+                    onChange={(e) => setNewPaper({ ...newPaper, fileOrLink: e.target.value })}
+                    placeholder="https://arxiv.org/..."
+                    style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #ced4da' }}
+                  />
+                </div>
+                <div style={{ marginBottom: '1.5rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.25rem' }}>Key Findings</label>
+                  <textarea
+                    rows={2}
+                    value={newPaper.keyFindings}
+                    onChange={(e) => setNewPaper({ ...newPaper, keyFindings: e.target.value })}
+                    placeholder="Main methodologies, benchmarks or conclusions..."
+                    style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #ced4da' }}
+                  />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                  <button
+                    type="button"
+                    onClick={() => setIsModalOpen(false)}
+                    style={{ padding: '0.5rem 1rem', border: '1px solid #ced4da', backgroundColor: '#f8f9fa', borderRadius: '6px', cursor: 'pointer' }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    style={{ padding: '0.5rem 1.25rem', backgroundColor: '#0d6efd', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}
+                  >
+                    {isSubmitting ? 'Adding...' : 'Add Paper'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
       </div>
     </main>
   );
 }
-
-// Helper functions for status badge colors
-const getStatusBadgeColor = (status: string) => {
-  switch (status) {
-    case 'Not Read': return '#6c757d';
-    case 'Reading': return '#ffc107';
-    case 'Reviewed': return '#17a2b8';
-    case 'Used in Report': return '#28a745';
-    default: return '#6c757d';
-  }
-};

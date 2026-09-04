@@ -46,8 +46,59 @@ export function HomePage() {
     } else {
       setCurrentUser(getCurrentUser());
       setIsLoading(false);
-      // In a real app, we would fetch actual data from API here
-      // For now, we'll use mock data based on the Excel file
+
+      const fetchDashboardData = (projId?: string) => {
+        const activeId = projId !== undefined 
+          ? projId 
+          : (typeof window !== 'undefined' ? window.localStorage.getItem('pmcs_active_project_id') || 'all' : 'all');
+        const url = activeId && activeId !== 'all' ? `/api/dashboard?projectId=${encodeURIComponent(activeId)}` : '/api/dashboard';
+
+        if (typeof fetch !== 'undefined') {
+          fetch(url)
+            .then(res => res.ok ? res.json() : null)
+            .then(data => {
+              if (data && data.metrics) {
+                setDashboardData({
+                  overallCompletion: data.metrics.overallCompletion,
+                  totalTasks: data.metrics.totalTasks,
+                  completedTasks: data.metrics.completedTasks,
+                  inProgressTasks: data.metrics.inProgressTasks,
+                  blockedTasks: data.metrics.blockedTasks,
+                  readyForReview: data.metrics.readyForReview,
+                  overdueTasks: data.metrics.overdueTasks,
+                  dueIn7Days: data.metrics.dueIn7Days,
+                  healthStatus: data.metrics.healthStatus,
+                });
+                if (data.tasks) {
+                  setTasks(data.tasks);
+                }
+                if (data.team) {
+                  setTeam(data.team);
+                }
+              }
+            })
+            .catch(() => {
+              // Fallback to initial seed state
+            });
+        }
+      };
+
+      fetchDashboardData();
+
+      const handleProjectChange = (e: Event) => {
+        const customEvent = e as CustomEvent;
+        fetchDashboardData(customEvent.detail?.projectId);
+      };
+
+      if (typeof window !== 'undefined') {
+        window.addEventListener('pmcs-project-changed', handleProjectChange);
+      }
+
+      return () => {
+        if (typeof window !== 'undefined') {
+          window.removeEventListener('pmcs-project-changed', handleProjectChange);
+        }
+      };
     }
   }, []);
 

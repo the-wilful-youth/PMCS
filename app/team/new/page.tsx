@@ -41,9 +41,16 @@ export default function NewTeamMemberPage() {
     setIsLoading(true);
 
     try {
-      // In a real app, we would send this data to an API
-      // For now, we'll simulate a successful submission
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const res = await fetch('/api/team', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to add team member');
+      }
 
       setSuccess('Team member added successfully!');
       setFormData({
@@ -55,12 +62,11 @@ export default function NewTeamMemberPage() {
         status: 'Active'
       });
 
-      // Redirect back to team list after a short delay
       setTimeout(() => {
         router.push('/team');
-      }, 1500);
-    } catch (err) {
-      setError('Failed to add team member. Please try again.');
+      }, 1000);
+    } catch (err: any) {
+      setError(err.message || 'Failed to add team member. Please try again.');
     } finally {
       setIsLoading(false);
     }
