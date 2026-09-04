@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { isAuthenticated, logout } from '@/lib/auth';
 
@@ -23,10 +23,11 @@ export default function NewTeamMemberPage() {
     router.replace('/login');
   };
 
-  if (!isAuthenticated()) {
-    router.replace('/login');
-    return null;
-  }
+  useEffect(() => {
+    if (!isAuthenticated()) {
+      router.replace('/login');
+    }
+  }, [router]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
