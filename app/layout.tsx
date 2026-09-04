@@ -2,8 +2,8 @@ import '../styles/globals.css';
 import Navigation from '@/components/Navigation';
 
 export const metadata = {
-  title: 'Project Manager Portal',
-  description: 'MVP for the Project Manager web portal',
+  title: 'PMCS — Project Management & Coordination System',
+  description: 'Enterprise multi-project coordination workspace for engineering and research teams.',
 };
 
 export default function RootLayout({
