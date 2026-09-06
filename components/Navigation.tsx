@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { logout, getCurrentUser } from '@/lib/auth';
+import NotificationBell from '@/components/notifications/NotificationBell';
 
 interface NavProject {
   id: string;
@@ -24,6 +25,7 @@ const NAV_ITEMS = [
   { label: 'Calendar', path: '/calendar' },
   { label: 'Reports', path: '/reports' },
   { label: 'Activity', path: '/activity' },
+  { label: 'Search', path: '/search' },
 ];
 
 export default function Navigation() {
@@ -242,6 +244,7 @@ export default function Navigation() {
               {currentUser?.role === 'admin' ? 'Project Admin' : 'Team Member'}
             </span>
           </div>
+          <NotificationBell />
           <button
             onClick={handleLogout}
             style={{
