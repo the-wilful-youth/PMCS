@@ -276,20 +276,19 @@ export function parseSession(raw: string | null): Session | null {
 export const getSession = (): Session | null => {
   if (typeof window === 'undefined') return null;
 
-  const cookieRaw = getCookie(SESSION_COOKIE_NAME);
-  const cookieSession = parseSession(cookieRaw);
-  if (cookieSession) return cookieSession;
-
   try {
     const localRaw = window.localStorage.getItem(SESSION_COOKIE_NAME);
     const localSession = parseSession(localRaw);
     if (localSession) {
-      setCookie(SESSION_COOKIE_NAME, JSON.stringify(localSession), Math.floor((localSession.expiresAt - Date.now()) / 1000));
       return localSession;
     }
   } catch {
     // Ignore storage access errors
   }
+
+  const cookieRaw = getCookie(SESSION_COOKIE_NAME);
+  const cookieSession = parseSession(cookieRaw);
+  if (cookieSession) return cookieSession;
 
   return null;
 };
@@ -347,7 +346,48 @@ export const login = async (usernameInput: string, passwordInput: string): Promi
     };
   }
 
-  // 1. Check default seed accounts
+  // 1. In browser environments: Authenticate with the server API endpoint so the server
+  // sets the cryptographically signed, HttpOnly session cookie on the response.
+  if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
+    try {
+      const resp = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: sanitizedUsername, password: sanitizedPassword }),
+      });
+
+      const data = await resp.json().catch(() => null);
+
+      if (resp.ok && data?.success && data?.user) {
+        clearFailedAttempts(rateLimitKey);
+        const authenticatedUser = data.user;
+        const session: Session = {
+          user: authenticatedUser,
+          token: `pmcs_${Math.random().toString(36).substring(2)}_${Date.now()}`,
+          expiresAt: Date.now() + SESSION_DURATION_MS,
+        };
+        try {
+          window.localStorage.setItem('isAuthenticated', 'true');
+          window.localStorage.setItem('username', authenticatedUser.username);
+          window.localStorage.setItem('userRole', authenticatedUser.role);
+          window.localStorage.setItem('userName', authenticatedUser.name);
+          window.localStorage.setItem(SESSION_COOKIE_NAME, JSON.stringify(session));
+        } catch {
+          // Ignore storage errors
+        }
+        return { success: true, user: authenticatedUser };
+      }
+
+      if (resp.status === 401 || resp.status === 429) {
+        recordFailedAttempt(rateLimitKey);
+        return { success: false, error: data?.error || 'Invalid username or password.' };
+      }
+    } catch {
+      // Fallback for offline unit test environments
+    }
+  }
+
+  // 2. Unit Test / Offline Fallback (e.g. Jest runner without Next.js HTTP server running)
   let authenticatedUser: AuthUser | null = null;
   for (const u of DEFAULT_USERS) {
     if (u.username.toLowerCase() === sanitizedUsername) {
@@ -365,23 +405,6 @@ export const login = async (usernameInput: string, passwordInput: string): Promi
     }
   }
 
-  if (!authenticatedUser && typeof window !== 'undefined') {
-    // 2. Browser check against server API for custom registered users
-    try {
-      const resp = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: sanitizedUsername, password: sanitizedPassword }),
-      });
-      const data = await resp.json();
-      if (data.success && data.user) {
-        authenticatedUser = data.user;
-      }
-    } catch {
-      // Fallback
-    }
-  }
-
   if (!authenticatedUser) {
     recordFailedAttempt(rateLimitKey);
     return { success: false, error: 'Invalid username or password.' };
@@ -395,17 +418,13 @@ export const login = async (usernameInput: string, passwordInput: string): Promi
     expiresAt: Date.now() + SESSION_DURATION_MS,
   };
 
-  const sessionString = JSON.stringify(session);
-  const maxAgeSeconds = Math.floor(SESSION_DURATION_MS / 1000);
-
   if (typeof window !== 'undefined') {
-    setCookie(SESSION_COOKIE_NAME, sessionString, maxAgeSeconds);
     try {
       window.localStorage.setItem('isAuthenticated', 'true');
       window.localStorage.setItem('username', authenticatedUser.username);
       window.localStorage.setItem('userRole', authenticatedUser.role);
       window.localStorage.setItem('userName', authenticatedUser.name);
-      window.localStorage.setItem(SESSION_COOKIE_NAME, sessionString);
+      window.localStorage.setItem(SESSION_COOKIE_NAME, JSON.stringify(session));
     } catch {
       // Ignore storage errors
     }
@@ -465,9 +484,9 @@ export const signup = async (
           email: sanitizedEmail,
         }),
       });
-      const data = await resp.json();
-      if (!resp.ok || !data.success) {
-        return { success: false, error: data.error || 'Registration failed' };
+      const data = await resp.json().catch(() => null);
+      if (!resp.ok || !data?.success) {
+        return { success: false, error: data?.error || 'Registration failed' };
       }
 
       const sessionUser: User = data.user;
@@ -477,15 +496,12 @@ export const signup = async (
         expiresAt: Date.now() + SESSION_DURATION_MS,
       };
 
-      const sessionString = JSON.stringify(session);
-      const maxAgeSeconds = Math.floor(SESSION_DURATION_MS / 1000);
-      setCookie(SESSION_COOKIE_NAME, sessionString, maxAgeSeconds);
       try {
         window.localStorage.setItem('isAuthenticated', 'true');
         window.localStorage.setItem('username', sessionUser.username);
         window.localStorage.setItem('userRole', sessionUser.role);
         window.localStorage.setItem('userName', sessionUser.name);
-        window.localStorage.setItem(SESSION_COOKIE_NAME, sessionString);
+        window.localStorage.setItem(SESSION_COOKIE_NAME, JSON.stringify(session));
       } catch {
         // Ignore storage errors
       }
@@ -511,5 +527,6 @@ export const logout = (): void => {
     } catch {
       // Ignore storage errors
     }
+    fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
   }
 };

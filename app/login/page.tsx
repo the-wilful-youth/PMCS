@@ -21,10 +21,23 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    if (isAuthenticated()) {
-      router.replace('/');
-    }
-  }, []);
+    // Verify server session directly to prevent infinite bounce loops between client and proxy.ts
+    fetch('/api/auth/me')
+      .then((res) => {
+        if (res.ok) {
+          router.replace('/');
+        } else {
+          try {
+            window.localStorage.removeItem('isAuthenticated');
+            window.localStorage.removeItem('username');
+            window.localStorage.removeItem('userRole');
+            window.localStorage.removeItem('userName');
+            window.localStorage.removeItem('pmcs_session');
+          } catch {}
+        }
+      })
+      .catch(() => {});
+  }, [router]);
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,15 +45,17 @@ export default function LoginPage() {
     setSuccess(null);
     setIsLoading(true);
 
-    // Minor async tick for UX responsiveness
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    try {
+      const result = await login(username, password);
 
-    const result = await login(username, password);
-
-    if (result.success) {
-      router.replace('/');
-    } else {
-      setError(result.error || 'Authentication failed. Please check your credentials.');
+      if (result.success) {
+        router.replace('/');
+      } else {
+        setError(result.error || 'Authentication failed. Please check your credentials.');
+        setIsLoading(false);
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Authentication error. Please try again.');
       setIsLoading(false);
     }
   };
@@ -51,15 +66,20 @@ export default function LoginPage() {
     setSuccess(null);
     setIsLoading(true);
 
-    const result = await signup(username, password, name, email);
+    try {
+      const result = await signup(username, password, name, email);
 
-    if (result.success) {
-      setSuccess('Account created successfully! Redirecting to workspace...');
-      setTimeout(() => {
-        router.replace('/');
-      }, 600);
-    } else {
-      setError(result.error || 'Registration failed. Please try again.');
+      if (result.success) {
+        setSuccess('Account created successfully! Redirecting to workspace...');
+        setTimeout(() => {
+          router.replace('/');
+        }, 500);
+      } else {
+        setError(result.error || 'Registration failed. Please try again.');
+        setIsLoading(false);
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Registration error. Please try again.');
       setIsLoading(false);
     }
   };
@@ -117,6 +137,8 @@ export default function LoginPage() {
                 onClick={() => {
                   setMode('signup');
                   setError(null);
+                  setSuccess(null);
+                  setIsLoading(false);
                 }}
                 style={{
                   background: 'none',
@@ -139,6 +161,8 @@ export default function LoginPage() {
                 onClick={() => {
                   setMode('signin');
                   setError(null);
+                  setSuccess(null);
+                  setIsLoading(false);
                 }}
                 style={{
                   background: 'none',
