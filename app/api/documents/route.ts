@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db, DocumentItem } from '@/lib/db';
-import { getSessionUser, unauthorizedResponse } from '@/lib/server-auth';
+import {
+  getSessionUser,
+  unauthorizedResponse,
+  forbiddenResponse,
+  canUserAccessProject,
+  getUserAccessibleProjectIds,
+} from '@/lib/server-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,8 +16,22 @@ export async function GET(request: NextRequest) {
     return unauthorizedResponse();
   }
 
+  const { searchParams } = new URL(request.url);
+  const projectId = searchParams.get('projectId');
   const dbData = db.read();
-  return NextResponse.json({ documents: dbData.documents });
+  let documents = [...dbData.documents];
+
+  if (projectId && projectId !== 'all') {
+    if (!canUserAccessProject(user, projectId, dbData)) {
+      return forbiddenResponse('Forbidden: You do not have access to this project');
+    }
+    documents = documents.filter((d) => d.projectId === projectId);
+  } else {
+    const accessibleIds = getUserAccessibleProjectIds(user, dbData);
+    documents = documents.filter((d) => d.projectId && accessibleIds.includes(d.projectId));
+  }
+
+  return NextResponse.json({ documents });
 }
 
 export async function POST(request: NextRequest) {
@@ -22,13 +42,40 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { name, description, category = 'Project Planning', version = '1.0', status = 'Draft', fileOrLink, relatedTask, tags = [] } = body;
+    const {
+      name,
+      description,
+      category = 'Project Planning',
+      version = '1.0',
+      status = 'Draft',
+      fileOrLink,
+      relatedTask,
+      tags = [],
+      projectId,
+    } = body;
 
     if (!name || !name.trim()) {
       return NextResponse.json({ error: 'Document name is required' }, { status: 400 });
     }
 
     const dbData = db.read();
+
+    // Determine target project
+    let targetProjectId = projectId?.trim();
+    if (!targetProjectId) {
+      // Find the first accessible project for this user
+      const accessible = getUserAccessibleProjectIds(user, dbData);
+      if (accessible.length > 0) {
+        targetProjectId = accessible[0];
+      } else {
+        return NextResponse.json({ error: 'Project ID is required' }, { status: 400 });
+      }
+    }
+
+    if (!canUserAccessProject(user, targetProjectId, dbData)) {
+      return forbiddenResponse('Forbidden: You do not have access to upload documents to this project');
+    }
+
     const nextNum = dbData.documents.length + 1;
     const id = `D-${String(nextNum).padStart(3, '0')}`;
 
@@ -36,6 +83,7 @@ export async function POST(request: NextRequest) {
       id,
       name: name.trim(),
       description: description?.trim() || '',
+      projectId: targetProjectId,
       category,
       owner: user.name || user.username,
       version,
@@ -52,7 +100,15 @@ export async function POST(request: NextRequest) {
     dbData.documents.unshift(newDoc);
     db.write(dbData);
 
-    db.logActivity(user.id || 'u-unknown', user.name || user.username, 'document_uploaded', `Uploaded document ${id}: ${newDoc.name}`, 'document', id);
+    db.logActivity(
+      user.id || 'u-unknown',
+      user.name || user.username,
+      'document_uploaded',
+      `Uploaded document ${id}: ${newDoc.name}`,
+      'document',
+      id,
+      targetProjectId
+    );
 
     return NextResponse.json({ document: newDoc }, { status: 201 });
   } catch (err: any) {

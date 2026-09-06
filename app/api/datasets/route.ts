@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db, DatasetItem } from '@/lib/db';
-import { getSessionUser, unauthorizedResponse } from '@/lib/server-auth';
+import {
+  getSessionUser,
+  unauthorizedResponse,
+  forbiddenResponse,
+  canUserAccessProject,
+  getUserAccessibleProjectIds,
+} from '@/lib/server-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,8 +16,22 @@ export async function GET(request: NextRequest) {
     return unauthorizedResponse();
   }
 
+  const { searchParams } = new URL(request.url);
+  const projectId = searchParams.get('projectId');
   const dbData = db.read();
-  return NextResponse.json({ datasets: dbData.datasets });
+  let datasets = [...dbData.datasets];
+
+  if (projectId && projectId !== 'all') {
+    if (!canUserAccessProject(user, projectId, dbData)) {
+      return forbiddenResponse('Forbidden: You do not have access to this project');
+    }
+    datasets = datasets.filter((d) => d.projectId === projectId);
+  } else {
+    const accessible = getUserAccessibleProjectIds(user, dbData);
+    datasets = datasets.filter((d) => d.projectId && accessible.includes(d.projectId));
+  }
+
+  return NextResponse.json({ datasets });
 }
 
 export async function POST(request: NextRequest) {
@@ -22,13 +42,39 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { name, source, description, accessStatus = 'Identified', analysisStatus = 'Not Started', size = '1 GB', format = 'CSV', license = 'Open', locationOrUrl = '', relatedTasks = [] } = body;
+    const {
+      name,
+      source,
+      description,
+      accessStatus = 'Identified',
+      analysisStatus = 'Not Started',
+      size = '1 GB',
+      format = 'CSV',
+      license = 'Open',
+      locationOrUrl = '',
+      relatedTasks = [],
+      projectId,
+    } = body;
 
     if (!name || !name.trim()) {
       return NextResponse.json({ error: 'Dataset name is required' }, { status: 400 });
     }
 
     const dbData = db.read();
+    let targetProjectId = projectId?.trim();
+    if (!targetProjectId) {
+      const accessible = getUserAccessibleProjectIds(user, dbData);
+      if (accessible.length > 0) {
+        targetProjectId = accessible[0];
+      } else {
+        return NextResponse.json({ error: 'Project ID is required' }, { status: 400 });
+      }
+    }
+
+    if (!canUserAccessProject(user, targetProjectId, dbData)) {
+      return forbiddenResponse('Forbidden: You do not have permission to add datasets to this project');
+    }
+
     const nextNum = dbData.datasets.length + 1;
     const id = `DS-${String(nextNum).padStart(3, '0')}`;
 
@@ -36,6 +82,7 @@ export async function POST(request: NextRequest) {
       id,
       name: name.trim(),
       source: source?.trim() || 'External',
+      projectId: targetProjectId,
       description: description?.trim() || '',
       accessStatus,
       analysisStatus,
@@ -51,7 +98,15 @@ export async function POST(request: NextRequest) {
     dbData.datasets.unshift(newDataset);
     db.write(dbData);
 
-    db.logActivity(user.id || 'u-unknown', user.name || user.username, 'dataset_added', `Added dataset ${id}: ${newDataset.name}`, 'dataset', id);
+    db.logActivity(
+      user.id || 'u-unknown',
+      user.name || user.username,
+      'dataset_added',
+      `Added dataset ${id}: ${newDataset.name}`,
+      'dataset',
+      id,
+      targetProjectId
+    );
 
     return NextResponse.json({ dataset: newDataset }, { status: 201 });
   } catch (err: any) {

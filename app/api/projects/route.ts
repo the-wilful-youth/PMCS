@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db, Project } from '@/lib/db';
-import { requireAdmin, requireAuth, unauthorizedResponse, forbiddenResponse } from '@/lib/server-auth';
+import {
+  requireAuth,
+  unauthorizedResponse,
+  getUserAccessibleProjects,
+} from '@/lib/server-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,24 +14,15 @@ export async function GET(request: NextRequest) {
   const user = auth.user;
 
   const dbData = db.read();
-
-  // If admin, return all projects; else return only projects where user is a member
-  let projects: Project[];
-  if (user.role === 'admin') {
-    projects = dbData.projects;
-  } else {
-    projects = dbData.projects.filter((p) =>
-      p.members.includes(user.name) || p.members.includes(user.username)
-    );
-  }
+  const projects = getUserAccessibleProjects(user, dbData);
 
   return NextResponse.json({ projects });
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await requireAdmin(request);
-  if (auth.errorResponse || !auth.user) return auth.errorResponse || forbiddenResponse();
-  const adminUser = auth.user;
+  const auth = await requireAuth(request);
+  if (auth.errorResponse || !auth.user) return auth.errorResponse || unauthorizedResponse();
+  const creator = auth.user;
 
   try {
     const body = await request.json();
@@ -37,7 +32,7 @@ export async function POST(request: NextRequest) {
       startDate,
       targetEndDate,
       status = 'Planning',
-      members = [], // array of usernames or user names to assign
+      members = [],
     } = body;
 
     // Validation
@@ -53,7 +48,7 @@ export async function POST(request: NextRequest) {
 
     const dbData = db.read();
 
-    // Check for duplicate project name (case-insensitive)
+    // Check for duplicate project name
     const exists = dbData.projects.some(
       (p) => p.name.toLowerCase() === name.trim().toLowerCase()
     );
@@ -61,14 +56,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Project with this name already exists' }, { status: 409 });
     }
 
-    // Validate members exist
+    // Validate members exist in DB
     const validMembers: string[] = [];
     for (const memberRef of members) {
       const member = dbData.users.find(
         (u) =>
-          u.username.toLowerCase() === memberRef.toLowerCase() ||
-          u.id.toLowerCase() === memberRef.toLowerCase() ||
-          u.name.toLowerCase() === memberRef.toLowerCase()
+          u.username.toLowerCase() === String(memberRef).toLowerCase() ||
+          u.id.toLowerCase() === String(memberRef).toLowerCase() ||
+          u.name.toLowerCase() === String(memberRef).toLowerCase()
       );
       if (member) {
         if (!validMembers.includes(member.name)) {
@@ -77,9 +72,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Ensure creator is always a member of the project they create
-    if (!validMembers.includes(adminUser.name)) {
-      validMembers.push(adminUser.name);
+    // Ensure creator is in members
+    const creatorIdentifier = creator.name || creator.username;
+    if (!validMembers.includes(creatorIdentifier)) {
+      validMembers.push(creatorIdentifier);
     }
 
     const newProject: Project = {
@@ -89,7 +85,7 @@ export async function POST(request: NextRequest) {
       startDate: startDate.trim(),
       targetEndDate: targetEndDate.trim(),
       status: status as 'Planning' | 'Active' | 'On Hold' | 'Completed' | 'Archived',
-      admin: adminUser.name,
+      admin: creatorIdentifier,
       members: validMembers,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -98,13 +94,13 @@ export async function POST(request: NextRequest) {
     dbData.projects.push(newProject);
     db.write(dbData);
 
-    // Log activity
     db.logActivity(
-      adminUser.id || 'u-unknown',
-      adminUser.name || adminUser.username,
+      creator.id || 'u-unknown',
+      creator.name || creator.username,
       'project_created',
       `Created project "${newProject.name}" with ${validMembers.length} members`,
       'project',
+      newProject.id,
       newProject.id
     );
 
