@@ -6,6 +6,8 @@ export interface User {
   role: string;
 }
 
+export type AuthUser = User;
+
 export interface Session {
   user: User;
   token: string;
@@ -29,8 +31,106 @@ const SESSION_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_DURATION_MS = 5 * 60 * 1000; // 5 minutes
 
-// Cryptographic hash helper using Web Crypto API / SHA-256 (zero external dependency)
+function getNodeCrypto() {
+  try {
+    if (typeof process !== 'undefined' && process.versions?.node) {
+      return eval('require')('crypto');
+    }
+  } catch {
+    // Browser
+  }
+  return null;
+}
+
+// Cryptographic PBKDF2 hash helper with salt
+export async function hashPassword(password: string): Promise<string> {
+  const nodeCrypto = getNodeCrypto();
+  const salt = (typeof crypto !== 'undefined' && crypto.getRandomValues)
+    ? Array.from(crypto.getRandomValues(new Uint8Array(16))).map(b => b.toString(16).padStart(2, '0')).join('')
+    : (nodeCrypto ? nodeCrypto.randomBytes(16).toString('hex') : Math.random().toString(36).substring(2) + Date.now().toString(36));
+
+  if (nodeCrypto) {
+    try {
+      const derived = nodeCrypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
+      return `pbkdf2:100000:${salt}:${derived}`;
+    } catch {
+      // Fallback
+    }
+  }
+
+  if (typeof crypto !== 'undefined' && crypto.subtle) {
+    try {
+      const encoder = new TextEncoder();
+      const saltBytes = new Uint8Array(salt.match(/.{1,2}/g)!.map((byte: string) => parseInt(byte, 16)));
+      const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits']);
+      const derived = await crypto.subtle.deriveBits(
+        { name: 'PBKDF2', salt: saltBytes, iterations: 100000, hash: 'SHA-512' },
+        keyMaterial,
+        512
+      );
+      const derivedHex = Array.from(new Uint8Array(derived)).map(b => b.toString(16).padStart(2, '0')).join('');
+      return `pbkdf2:100000:${salt}:${derivedHex}`;
+    } catch {
+      // Fallback
+    }
+  }
+
+  return sha256(password + salt);
+}
+
+export async function verifyPassword(password: string, storedHash: string): Promise<boolean> {
+  if (!password || !storedHash) return false;
+
+  if (storedHash.startsWith('pbkdf2:')) {
+    const parts = storedHash.split(':');
+    if (parts.length !== 4) return false;
+    const iterations = parseInt(parts[1], 10);
+    const salt = parts[2];
+    const originalHash = parts[3];
+
+    const nodeCrypto = getNodeCrypto();
+    if (nodeCrypto) {
+      try {
+        const derived = nodeCrypto.pbkdf2Sync(password, salt, iterations, 64, 'sha512').toString('hex');
+        return nodeCrypto.timingSafeEqual(Buffer.from(derived), Buffer.from(originalHash));
+      } catch {
+        // Fallback
+      }
+    }
+
+    if (typeof crypto !== 'undefined' && crypto.subtle) {
+      try {
+        const encoder = new TextEncoder();
+        const saltBytes = new Uint8Array(salt.match(/.{1,2}/g)!.map((byte: string) => parseInt(byte, 16)));
+        const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits']);
+        const derived = await crypto.subtle.deriveBits(
+          { name: 'PBKDF2', salt: saltBytes, iterations, hash: 'SHA-512' },
+          keyMaterial,
+          512
+        );
+        const derivedHex = Array.from(new Uint8Array(derived)).map(b => b.toString(16).padStart(2, '0')).join('');
+        return derivedHex === originalHash;
+      } catch {
+        // Fallback
+      }
+    }
+  }
+
+  // Backward compatibility with legacy sha256 hashes
+  const legacy = await sha256(password);
+  return legacy === storedHash;
+}
+
+// Cryptographic hash helper using Web Crypto API / SHA-256
 export async function sha256(str: string): Promise<string> {
+  const nodeCrypto = getNodeCrypto();
+  if (nodeCrypto) {
+    try {
+      return nodeCrypto.createHash('sha256').update(str + 'pmcs_salt_v1').digest('hex');
+    } catch {
+      // Fallback
+    }
+  }
   const encoder = new TextEncoder();
   const data = encoder.encode(str + 'pmcs_salt_v1');
   if (typeof crypto !== 'undefined' && crypto.subtle) {
@@ -38,7 +138,6 @@ export async function sha256(str: string): Promise<string> {
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
   }
-  // Fallback for node environment where crypto.subtle might be accessed via node:crypto
   try {
     const nodeCrypto = require('crypto');
     return nodeCrypto.createHash('sha256').update(data).digest('hex');
@@ -52,12 +151,40 @@ export async function sha256(str: string): Promise<string> {
   }
 }
 
-// Built-in seed accounts for instant access and test compatibility
-export const DEFAULT_USERS: (User & { passwordPlain: string })[] = [
-  { id: 'u-1', username: 'anurag', passwordPlain: 'Admin@123456', role: 'admin', name: 'Anurag', email: 'anurag@pmcs.local' },
-  { id: 'u-2', username: 'divyanshi', passwordPlain: 'Member@123456', role: 'member', name: 'Divyanshi', email: 'divyanshi@pmcs.local' },
-  { id: 'u-3', username: 'tanishk', passwordPlain: 'Member@123456', role: 'member', name: 'Tanishk', email: 'tanishk@pmcs.local' },
-  { id: 'u-4', username: 'prajjwal', passwordPlain: 'Member@123456', role: 'member', name: 'Prajjwal', email: 'prajjwal@pmcs.local' },
+// Built-in seed accounts using cryptographic PBKDF2 hashes (zero plaintext passwords)
+export const DEFAULT_USERS: (User & { passwordHash: string })[] = [
+  {
+    id: 'u-1',
+    username: 'anurag',
+    passwordHash: 'pbkdf2:100000:salt_anurag_admin:34680d00dc38e345ed7d9825ec7ca1196446afbbaa0206162eec4346f94f9082e8a71029518cd32196bd0c75c4ca4b08b66bb02d951cd8b702ac4e33e5482673',
+    role: 'admin',
+    name: 'Anurag',
+    email: 'anurag@pmcs.local',
+  },
+  {
+    id: 'u-2',
+    username: 'divyanshi',
+    passwordHash: 'pbkdf2:100000:salt_member_default:031b24cf3526b4c1b0128fec53f5dc5cf42a647656b8a6222bb76a5527ae179929b0a74170137fefaf433e5c85ca5a2e60281a17537fe2c14b63b94fb01b534b',
+    role: 'member',
+    name: 'Divyanshi',
+    email: 'divyanshi@pmcs.local',
+  },
+  {
+    id: 'u-3',
+    username: 'tanishk',
+    passwordHash: 'pbkdf2:100000:salt_member_default:031b24cf3526b4c1b0128fec53f5dc5cf42a647656b8a6222bb76a5527ae179929b0a74170137fefaf433e5c85ca5a2e60281a17537fe2c14b63b94fb01b534b',
+    role: 'member',
+    name: 'Tanishk',
+    email: 'tanishk@pmcs.local',
+  },
+  {
+    id: 'u-4',
+    username: 'prajjwal',
+    passwordHash: 'pbkdf2:100000:salt_member_default:031b24cf3526b4c1b0128fec53f5dc5cf42a647656b8a6222bb76a5527ae179929b0a74170137fefaf433e5c85ca5a2e60281a17537fe2c14b63b94fb01b534b',
+    role: 'member',
+    name: 'Prajjwal',
+    email: 'prajjwal@pmcs.local',
+  },
 ];
 
 // In-memory rate limiting tracker (per client session/username)
@@ -121,8 +248,20 @@ function deleteCookie(name: string): void {
 export function parseSession(raw: string | null): Session | null {
   if (!raw) return null;
   try {
-    const session: Session = JSON.parse(raw);
-    if (!session || !session.user || !session.token || !session.expiresAt) {
+    let jsonStr = raw;
+    if (raw.includes('.') && !raw.trim().startsWith('{')) {
+      const parts = raw.split('.');
+      if (parts.length === 2) {
+        if (typeof Buffer !== 'undefined') {
+          jsonStr = Buffer.from(parts[0], 'base64url').toString('utf-8');
+        } else if (typeof atob !== 'undefined') {
+          const base64 = parts[0].replace(/-/g, '+').replace(/_/g, '/');
+          jsonStr = decodeURIComponent(escape(atob(base64)));
+        }
+      }
+    }
+    const session: Session = JSON.parse(jsonStr);
+    if (!session || !session.user || !session.expiresAt) {
       return null;
     }
     if (Date.now() > session.expiresAt) {
@@ -209,21 +348,24 @@ export const login = async (usernameInput: string, passwordInput: string): Promi
   }
 
   // 1. Check default seed accounts
-  const defaultUser = DEFAULT_USERS.find(
-    u => u.username.toLowerCase() === sanitizedUsername && u.passwordPlain === sanitizedPassword
-  );
+  let authenticatedUser: AuthUser | null = null;
+  for (const u of DEFAULT_USERS) {
+    if (u.username.toLowerCase() === sanitizedUsername) {
+      const isMatch = await verifyPassword(sanitizedPassword, u.passwordHash);
+      if (isMatch) {
+        authenticatedUser = {
+          id: u.id,
+          username: u.username,
+          name: u.name,
+          email: u.email,
+          role: u.role,
+        };
+        break;
+      }
+    }
+  }
 
-  let authenticatedUser: User | null = null;
-
-  if (defaultUser) {
-    authenticatedUser = {
-      id: defaultUser.id,
-      username: defaultUser.username,
-      name: defaultUser.name,
-      email: defaultUser.email,
-      role: defaultUser.role,
-    };
-  } else if (typeof window !== 'undefined') {
+  if (!authenticatedUser && typeof window !== 'undefined') {
     // 2. Browser check against server API for custom registered users
     try {
       const resp = await fetch('/api/auth/login', {

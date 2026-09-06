@@ -37,8 +37,11 @@ export interface TaskWorkLog {
   id: string;
   userId: string;
   userName: string;
-  hours: number;
-  description: string;
+  workCompleted: number; // effort points
+  workRemaining: number; // effort points
+  blockerProblem?: string;
+  nextStep?: string;
+  evidenceLink?: string;
   date: string;
   createdAt: string;
 }
@@ -52,12 +55,12 @@ export interface Task {
   owner: string;
   assignee: string;
   supportingMembers: string[];
-  priority: 'High' | 'Medium' | 'Low';
-  status: 'Not Started' | 'In Progress' | 'Ready for Review' | 'Completed' | 'Blocked';
+  priority: 'Critical' | 'High' | 'Medium' | 'Low';
+  status: 'Not Started' | 'In Progress' | 'Ready for Review' | 'Completed' | 'Blocked' | 'Changes Required';
   startDate: string;
   dueDate: string;
-  estimatedEffort: string;
-  actualEffort: string;
+  estimatedEffort: number; // effort points (1,2,3,5,8)
+  actualEffort: number; // effort points (1,2,3,5,8)
   dependencies: string[];
   deliverable: string;
   reviewer: string;
@@ -189,6 +192,21 @@ export interface ActivityItem {
   projectId?: string;
 }
 
+export interface Notification {
+  id: string;
+  timestamp: string;
+  userId: string; // the user who should receive the notification
+  eventType: string; // e.g., 'task_assigned', 'task_due_soon', etc.
+  projectId: string; // the project the notification belongs to
+  projectName?: string; // denormalized for efficiency
+  objectType: string; // e.g., 'task', 'milestone', 'meeting'
+  objectId: string; // the ID of the object
+  objectName?: string; // denormalized for efficiency
+  link: string; // URL to the object
+  isRead: boolean;
+  createdAt: string;
+}
+
 export interface DatabaseSchema {
   users: User[];
   projects: Project[];
@@ -200,6 +218,7 @@ export interface DatabaseSchema {
   datasets: DatasetItem[];
   meetings: MeetingItem[];
   activity: ActivityItem[];
+  notifications: Notification[];
 }
 
 const DATA_DIR = path.join(process.cwd(), 'data');
@@ -207,10 +226,10 @@ const DB_FILE = path.join(DATA_DIR, 'pmcs.json');
 
 const INITIAL_DATA: DatabaseSchema = {
   users: [
-    { id: 'u-1', username: 'anurag', name: 'Anurag', email: 'anurag@pmcs.local', role: 'admin', status: 'Active', joinedDate: '2026-08-01' },
-    { id: 'u-2', username: 'divyanshi', name: 'Divyanshi', email: 'divyanshi@pmcs.local', role: 'member', status: 'Active', joinedDate: '2026-08-01' },
-    { id: 'u-3', username: 'tanishk', name: 'Tanishk', email: 'tanishk@pmcs.local', role: 'member', status: 'Active', joinedDate: '2026-08-01' },
-    { id: 'u-4', username: 'prajjwal', name: 'Prajjwal', email: 'prajjwal@pmcs.local', role: 'member', status: 'Active', joinedDate: '2026-08-01' },
+    { id: 'u-1', username: 'anurag', name: 'Anurag', email: 'anurag@pmcs.local', role: 'admin', status: 'Active', joinedDate: '2026-08-01', passwordHash: 'pbkdf2:100000:salt_anurag_admin:34680d00dc38e345ed7d9825ec7ca1196446afbbaa0206162eec4346f94f9082e8a71029518cd32196bd0c75c4ca4b08b66bb02d951cd8b702ac4e33e5482673' },
+    { id: 'u-2', username: 'divyanshi', name: 'Divyanshi', email: 'divyanshi@pmcs.local', role: 'member', status: 'Active', joinedDate: '2026-08-01', passwordHash: 'pbkdf2:100000:salt_member_default:031b24cf3526b4c1b0128fec53f5dc5cf42a647656b8a6222bb76a5527ae179929b0a74170137fefaf433e5c85ca5a2e60281a17537fe2c14b63b94fb01b534b' },
+    { id: 'u-3', username: 'tanishk', name: 'Tanishk', email: 'tanishk@pmcs.local', role: 'member', status: 'Active', joinedDate: '2026-08-01', passwordHash: 'pbkdf2:100000:salt_member_default:031b24cf3526b4c1b0128fec53f5dc5cf42a647656b8a6222bb76a5527ae179929b0a74170137fefaf433e5c85ca5a2e60281a17537fe2c14b63b94fb01b534b' },
+    { id: 'u-4', username: 'prajjwal', name: 'Prajjwal', email: 'prajjwal@pmcs.local', role: 'member', status: 'Active', joinedDate: '2026-08-01', passwordHash: 'pbkdf2:100000:salt_member_default:031b24cf3526b4c1b0128fec53f5dc5cf42a647656b8a6222bb76a5527ae179929b0a74170137fefaf433e5c85ca5a2e60281a17537fe2c14b63b94fb01b534b' },
   ],
   projects: [
     {
@@ -240,8 +259,8 @@ const INITIAL_DATA: DatabaseSchema = {
       status: 'Completed',
       startDate: '2026-08-01',
       dueDate: '2026-09-15',
-      estimatedEffort: '10h',
-      actualEffort: '8h',
+      estimatedEffort: 5, // 5 points (Medium effort)
+      actualEffort: 5, // 5 points (completed)
       dependencies: [],
       deliverable: 'Workspace and repository initialized',
       reviewer: 'Anurag',
@@ -249,7 +268,18 @@ const INITIAL_DATA: DatabaseSchema = {
         { id: 'c-1', userId: 'u-1', userName: 'Anurag', content: 'Initial folder structure configured on Google Drive and Git.', createdAt: '2026-08-05T14:30:00.000Z' }
       ],
       worklogs: [
-        { id: 'wl-1', userId: 'u-1', userName: 'Anurag', hours: 8, description: 'Created directories, access permissions, and repo', date: '2026-08-05', createdAt: '2026-08-05T15:00:00.000Z' }
+        {
+          id: 'wl-1',
+          userId: 'u-1',
+          userName: 'Anurag',
+          workCompleted: 5,
+          workRemaining: 0,
+          blockerProblem: undefined,
+          nextStep: undefined,
+          evidenceLink: 'https://drive.google.com/folder/example&https://github.com/pmcs/repo',
+          date: '2026-08-05',
+          createdAt: '2026-08-05T15:00:00.000Z'
+        }
       ],
       createdAt: '2026-08-01T09:00:00.000Z',
       updatedAt: '2026-08-05T15:00:00.000Z',
@@ -267,14 +297,25 @@ const INITIAL_DATA: DatabaseSchema = {
       status: 'In Progress',
       startDate: '2026-08-10',
       dueDate: '2026-09-20',
-      estimatedEffort: '25h',
-      actualEffort: '12h',
+      estimatedEffort: 8, // 8 points (Major effort)
+      actualEffort: 3, // 3 points (Large effort - partial completion)
       dependencies: ['T-001'],
       deliverable: 'Dataset selection criteria and finalized list',
       reviewer: 'Anurag',
       comments: [],
       worklogs: [
-        { id: 'wl-2', userId: 'u-2', userName: 'Divyanshi', hours: 12, description: 'Filtered 5 Linux trace archives down to 3 candidate sets', date: '2026-08-18', createdAt: '2026-08-18T16:00:00.000Z' }
+        {
+          id: 'wl-2',
+          userId: 'u-2',
+          userName: 'Divyanshi',
+          workCompleted: 3,
+          workRemaining: 5,
+          blockerProblem: 'Waiting on external dataset approvals',
+          nextStep: 'Follow up with Cambridge repository',
+          evidenceLink: 'https://docs.google.com/document/d/effort-tracking',
+          date: '2026-08-18',
+          createdAt: '2026-08-18T16:00:00.000Z'
+        }
       ],
       createdAt: '2026-08-01T09:00:00.000Z',
       updatedAt: '2026-08-18T16:00:00.000Z',
@@ -292,15 +333,28 @@ const INITIAL_DATA: DatabaseSchema = {
       status: 'Ready for Review',
       startDate: '2026-08-10',
       dueDate: '2026-09-25',
-      estimatedEffort: '30h',
-      actualEffort: '28h',
+      estimatedEffort: 8, // 8 points (Major effort)
+      actualEffort: 8, // 8 points (completed)
       dependencies: ['T-001'],
       deliverable: 'Literature survey report summarizing 15 papers',
       reviewer: 'Anurag',
       comments: [
         { id: 'c-2', userId: 'u-3', userName: 'Tanishk', content: 'Draft survey uploaded to Documents as D-003.', createdAt: '2026-08-25T11:00:00.000Z' }
       ],
-      worklogs: [],
+      worklogs: [
+        {
+          id: 'wl-3',
+          userId: 'u-3',
+          userName: 'Tanishk',
+          workCompleted: 8,
+          workRemaining: 0,
+          blockerProblem: undefined,
+          nextStep: undefined,
+          evidenceLink: 'https://drive.google.com/file/d/literature-survey-draft',
+          date: '2026-08-25',
+          createdAt: '2026-08-25T11:00:00.000Z'
+        }
+      ],
       createdAt: '2026-08-01T09:00:00.000Z',
       updatedAt: '2026-08-25T11:00:00.000Z',
     },
@@ -317,15 +371,28 @@ const INITIAL_DATA: DatabaseSchema = {
       status: 'Blocked',
       startDate: '2026-08-20',
       dueDate: '2026-09-30',
-      estimatedEffort: '15h',
-      actualEffort: '4h',
+      estimatedEffort: 5, // 5 points (Medium effort)
+      actualEffort: 2, // 2 points (Medium effort - started but blocked)
       dependencies: ['T-002'],
       deliverable: 'Raw dataset files stored securely',
       reviewer: 'Anurag',
       comments: [
         { id: 'c-3', userId: 'u-4', userName: 'Prajjwal', content: 'Blocked waiting on academic dataset approval from external university portal.', createdAt: '2026-08-28T09:30:00.000Z' }
       ],
-      worklogs: [],
+      worklogs: [
+        {
+          id: 'wl-4',
+          userId: 'u-4',
+          userName: 'Prajjwal',
+          workCompleted: 2,
+          workRemaining: 3,
+          blockerProblem: 'Blocked waiting on academic dataset approval from external university portal.',
+          nextStep: 'Escalate to research office for expedited approval',
+          evidenceLink: 'https://email.example.edu/approval-request',
+          date: '2026-08-28',
+          createdAt: '2026-08-28T09:30:00.000Z'
+        }
+      ],
       createdAt: '2026-08-01T09:00:00.000Z',
       updatedAt: '2026-08-28T09:30:00.000Z',
     },
@@ -342,8 +409,8 @@ const INITIAL_DATA: DatabaseSchema = {
       status: 'Not Started',
       startDate: '2026-09-01',
       dueDate: '2026-10-05',
-      estimatedEffort: '35h',
-      actualEffort: '0h',
+      estimatedEffort: 8, // 8 points (Major effort)
+      actualEffort: 0, // 0 points (not started)
       dependencies: ['T-004'],
       deliverable: 'Executable Python parsing and normalization pipeline',
       reviewer: 'Anurag',
@@ -662,10 +729,12 @@ const INITIAL_DATA: DatabaseSchema = {
     { id: 'act-3', timestamp: '2026-08-10T10:00:00.000Z', userId: 'u-2', userName: 'Divyanshi', actionType: 'document_uploaded', description: 'Uploaded Linux Dataset Requirements (D-002)', entityType: 'document', entityId: 'D-002', projectId: 'PRJ-CHRONICLE' },
     { id: 'act-4', timestamp: '2026-08-26T10:00:00.000Z', userId: 'u-4', userName: 'Prajjwal', actionType: 'issue_reported', description: 'Reported critical blocker: Dataset Access Permission Delay', entityType: 'issue', entityId: 'ISS-001', projectId: 'PRJ-CHRONICLE' },
   ],
+  notifications: [],
 };
 
 class DatabaseManager {
   private cache: DatabaseSchema | null = null;
+  private lastMtime: number = 0;
 
   private ensureDirectory(): void {
     if (!fs.existsSync(DATA_DIR)) {
@@ -676,10 +745,6 @@ class DatabaseManager {
   public read(): DatabaseSchema {
     this.ensureDirectory();
 
-    if (this.cache) {
-      return this.cache;
-    }
-
     if (!fs.existsSync(DB_FILE)) {
       this.writeSync(INITIAL_DATA);
       this.cache = INITIAL_DATA;
@@ -687,9 +752,15 @@ class DatabaseManager {
     }
 
     try {
+      const stats = fs.statSync(DB_FILE);
+      if (this.cache && this.lastMtime === stats.mtimeMs) {
+        return this.cache;
+      }
+
       const content = fs.readFileSync(DB_FILE, 'utf-8');
       const parsed = JSON.parse(content) as DatabaseSchema;
       // Ensure all arrays exist
+      if (!parsed.users) parsed.users = INITIAL_DATA.users;
       if (!parsed.projects) parsed.projects = INITIAL_DATA.projects;
       if (!parsed.tasks) parsed.tasks = [];
       if (!parsed.milestones) parsed.milestones = [];
@@ -699,7 +770,9 @@ class DatabaseManager {
       if (!parsed.datasets) parsed.datasets = [];
       if (!parsed.meetings) parsed.meetings = [];
       if (!parsed.activity) parsed.activity = [];
+      if (!parsed.notifications) parsed.notifications = [];
       this.cache = parsed;
+      this.lastMtime = stats.mtimeMs;
       return parsed;
     } catch (err) {
       console.error('Error reading database file, using initial data fallback:', err);
@@ -713,6 +786,12 @@ class DatabaseManager {
     const tempFile = `${DB_FILE}.${Date.now()}.${Math.random().toString(36).substring(7)}.tmp`;
     fs.writeFileSync(tempFile, JSON.stringify(data, null, 2), 'utf-8');
     fs.renameSync(tempFile, DB_FILE);
+    try {
+      const stats = fs.statSync(DB_FILE);
+      this.lastMtime = stats.mtimeMs;
+    } catch {
+      this.lastMtime = Date.now();
+    }
     this.cache = data;
   }
 

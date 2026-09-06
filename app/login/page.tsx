@@ -399,31 +399,6 @@ export default function LoginPage() {
             </button>
           </form>
         )}
-
-        <div
-          style={{
-            marginTop: '1.75rem',
-            padding: '1rem',
-            backgroundColor: '#f8f9fa',
-            borderRadius: '6px',
-            border: '1px solid #e9ecef',
-            fontSize: '0.8rem',
-            color: '#495057',
-          }}
-        >
-          <strong style={{ display: 'block', marginBottom: '0.25rem', color: '#212529' }}>
-            Demo / Initial Accounts:
-          </strong>
-          <ul style={{ margin: '0.25rem 0 0 0', paddingLeft: '1.25rem', lineHeight: '1.5' }}>
-            <li>
-              <strong>Admin:</strong> <code>anurag</code> / <code>Admin@123456</code>
-            </li>
-            <li>
-              <strong>Member:</strong> <code>divyanshi</code>, <code>tanishk</code>, or <code>prajjwal</code> /{' '}
-              <code>Member@123456</code>
-            </li>
-          </ul>
-        </div>
       </div>
     </main>
   );
